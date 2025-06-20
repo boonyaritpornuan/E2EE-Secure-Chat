@@ -1,6 +1,0 @@
-{
-  "name": "E2EE Secure Chat",
-  "description": "A peer-to-peer, end-to-end encrypted chat application that runs entirely in the browser. No data is stored on any server.",
-  "requestFramePermissions": [],
-  "prompt": ""
-}
