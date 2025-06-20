@@ -1,0 +1,74 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-MFEy5c7z8kX5A9kP">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E2EE Secure Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tweetnacl/1.0.3/nacl.min.js" integrity="sha512-awS9KByEMqzvOk5Jo/2UnAlhJKdBXGaUKL1oY9zLwP3hLLAIChv6pT7ZAUjTA2WXZ2BCY2N7/SBrJIEBG43XyQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif; /* A more modern sans-serif font */
+      overscroll-behavior-y: contain; /* Prevents pull-to-refresh on mobile when scrolling body */
+    }
+    /* Custom scrollbar for message areas */
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #374151; /* bg-gray-700 */
+      border-radius: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #14b8a6; /* teal-500 */
+      border-radius: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #0d9488; /* teal-600 */
+    }
+    /* For Firefox */
+    .custom-scrollbar {
+      scrollbar-width: thin;
+      scrollbar-color: #14b8a6 #374151; /* thumb track */
+    }
+
+    #root {
+      min-height: 100vh; /* Ensure it takes full viewport height */
+      display: flex;
+      flex-direction: column;
+    }
+    textarea { /* ensure textareas also use custom scrollbar if they overflow */
+        scrollbar-width: thin;
+        scrollbar-color: #14b8a6 #374151;
+    }
+    textarea::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    textarea::-webkit-scrollbar-track {
+        background: #374151;
+        border-radius: 8px;
+    }
+    textarea::-webkit-scrollbar-thumb {
+        background: #14b8a6;
+        border-radius: 8px;
+    }
+  </style>
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-gray-900 text-gray-100 antialiased">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
