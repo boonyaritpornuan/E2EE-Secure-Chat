@@ -62,8 +62,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     let attempts = 0;
-    const maxAttempts = 5; // Try 5 times (total 2.5 seconds + initial delay)
+    const maxAttempts = 5; // Try 5 times
     const interval = 500; // ms
+    let timeoutId: number | undefined = undefined;
 
     const tryLoadNacl = () => {
       if (typeof nacl !== 'undefined') {
@@ -74,7 +75,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         attempts++;
         if (attempts < maxAttempts) {
           setNaclLoadingStatusMessage(`Cryptography library loading... (attempt ${attempts + 1}/${maxAttempts})`);
-          setTimeout(tryLoadNacl, interval);
+          timeoutId = window.setTimeout(tryLoadNacl, interval);
         } else {
           setNaclLoadingStatusMessage("Failed to load cryptography library. Please refresh the page.");
           setIsNaClReady(false); // Explicitly set to false
@@ -82,8 +83,14 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
     };
-    // Initial short delay before first check, in case it's just about to load
-    setTimeout(tryLoadNacl, 100); 
+    
+    timeoutId = window.setTimeout(tryLoadNacl, 100); // Initial short delay before first check
+
+    return () => {
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, []);
 
 
@@ -141,7 +148,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [resetWebRTCState]);
 
   const setRoomId = (newRoomId: string | null) => {
-    if (roomId === newRoomId && newRoomId !== null) return; // Avoid re-joining same room if already in it
+    if (roomId === newRoomId && newRoomId !== null) return; 
     
     clearChatData(); 
     setRoomIdInternal(newRoomId);
@@ -157,13 +164,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       
       try {
-        // generateAppKeyPair itself throws if nacl is undefined.
         const newKeys = generateAppKeyPair(); 
         setOwnKeyPair(newKeys);
         addSystemMessage("Your encryption keys generated.", SystemMessageType.KEY_EXCHANGE);
       } catch (e: any) {
         addSystemMessage(e.message || "Key generation failed: Critical crypto library issue. Please refresh.", SystemMessageType.ERROR);
-        setOwnKeyPair(null); // Ensure keys are cleared if generation fails
+        setOwnKeyPair(null); 
       }
     }
   };
@@ -213,12 +219,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [addSystemMessage, ownKeyPair]);
 
   const setupPeerConnection = useCallback(() => {
-    if (!ownKeyPair) { // Should be caught by isNaClReady earlier, but defensive check
+    if (!ownKeyPair) { 
         addSystemMessage("Cannot setup WebRTC: Own keys not generated (NaCl issue?).", SystemMessageType.ERROR);
         return null;
     }
     if (peerConnectionRef.current && peerConnectionRef.current.signalingState !== 'closed') {
-        addSystemMessage("WebRTC PeerConnection already exists.", SystemMessageType.WEBRTC_STATUS);
+        // addSystemMessage("WebRTC PeerConnection already exists.", SystemMessageType.WEBRTC_STATUS); // Can be verbose
         return peerConnectionRef.current;
     }
     
@@ -228,7 +234,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        // addSystemMessage("Generated ICE candidate. Sending...", SystemMessageType.WEBRTC_STATUS); // Can be too verbose
         if (broadcastChannelRef.current) {
           const iceMessage: BroadcastChannelMessage = {
             type: MessageType.ICE_CANDIDATE,
@@ -286,6 +291,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         addSystemMessage("Failed to setup PeerConnection for offer.", SystemMessageType.ERROR);
         return;
     }
+    // Allow creating offer if state is 'stable' or if we already have a local offer (e.g. for renegotiation, though not fully implemented here)
     if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-local-offer') { 
       addSystemMessage(`Cannot create offer in WebRTC state: ${pc.signalingState}. Please wait or reset.`, SystemMessageType.WEBRTC_STATUS);
       return;
@@ -294,7 +300,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     webRTCInitiatorRef.current = true; 
     addSystemMessage("Creating WebRTC Data Channel & Offer...", SystemMessageType.WEBRTC_STATUS);
     
-    if (!dataChannelRef.current || dataChannelRef.current.readyState !== 'open') {
+    // Ensure data channel exists before creating offer if we are initiator
+    if (!dataChannelRef.current || dataChannelRef.current.readyState === 'closed' || dataChannelRef.current.readyState === 'closing') {
         const dc = pc.createDataChannel(WEBRTC_DATA_CHANNEL_LABEL);
         dataChannelRef.current = dc;
         setupDataChannelEvents(dc);
@@ -324,7 +331,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [isPeerConnectedViaPK, addSystemMessage, setupPeerConnection, setupDataChannelEvents, isNaClReady, ownKeyPair]);
 
   useEffect(() => {
-    if (!roomId || !ownKeyPair) { // ownKeyPair check implies isNaClReady was true for it to be set
+    if (!roomId || !ownKeyPair) { 
       if (broadcastChannelRef.current) {
         broadcastChannelRef.current.onmessage = null;
         broadcastChannelRef.current.onmessageerror = null;
@@ -373,16 +380,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setPeerPublicKeyBase64(pkPayload.publicKeyBase64);
             setIsPeerConnectedViaPK(true);
             addSystemMessage("Peer's public key received. E2EE ready. You can now initiate WebRTC.", SystemMessageType.KEY_EXCHANGE);
+             // Respond with our public key again in case they joined after us / missed our initial broadcast
              broadcastChannelRef.current?.postMessage(pkShareMsg); 
           }
           break;
 
         case MessageType.SDP_OFFER:
           if (webRTCInitiatorRef.current) {
-             addSystemMessage("Ignoring received SDP Offer as this client is already initiating.", SystemMessageType.WEBRTC_STATUS);
+             // addSystemMessage("Ignoring received SDP Offer as this client is already initiating.", SystemMessageType.WEBRTC_STATUS);
              return;
           }
-          webRTCInitiatorRef.current = false;
+          webRTCInitiatorRef.current = false; // The other peer is the initiator
           if (!pc || pc.signalingState === 'closed') pc = setupPeerConnection();
           if (!pc) {
             addSystemMessage("PeerConnection not ready to handle offer.", SystemMessageType.ERROR);
@@ -412,7 +420,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         case MessageType.SDP_ANSWER:
            if (!webRTCInitiatorRef.current) {
-             addSystemMessage("Ignoring received SDP Answer as this client did not initiate an offer.", SystemMessageType.WEBRTC_STATUS);
+             // addSystemMessage("Ignoring received SDP Answer as this client did not initiate an offer.", SystemMessageType.WEBRTC_STATUS);
              return;
            }
           if (!pc) {
@@ -432,19 +440,18 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         case MessageType.ICE_CANDIDATE:
           if (!pc || pc.signalingState === 'closed') {
-            // addSystemMessage("PeerConnection not ready or closed, cannot handle ICE candidate.", SystemMessageType.WEBRTC_STATUS); // Too verbose
             return;
           }
           const icePayload = data.payload as IceCandidateSignalMessage;
           try {
             await pc.addIceCandidate(new RTCIceCandidate(icePayload.candidate));
           } catch (error) {
-            // console.warn("Error adding received ICE candidate:", error); 
+            // console.warn("Error adding received ICE candidate:", error); // Can be noisy, especially if candidates arrive early
           }
           break;
         
         case MessageType.TEXT: 
-          if (isWebRTCConnected) {
+          if (isWebRTCConnected) { // Prioritize WebRTC messages if connected
              return;
           }
           const encryptedTextPayload = data.payload as Omit<EncryptedTextMessage, 'type' | 'id' | 'timestamp'> & { senderPublicKeyBase64: string };
@@ -469,9 +476,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     return () => {
-      // Cleanup is mostly handled by clearChatData on roomId change or full unmount
+      // Cleanup for this specific room's BC is handled when roomId changes or component unmounts (via clearChatData)
     };
-  }, [roomId, ownKeyPair, peerPublicKeyBase64, addSystemMessage, isWebRTCConnected, setupPeerConnection]);
+  }, [roomId, ownKeyPair, peerPublicKeyBase64, addSystemMessage, isWebRTCConnected, setupPeerConnection]); // Removed 'initiateWebRTCOffer' from deps, was causing loops
 
   const setRemoteSdp = async (sdpJson: string, type: 'offer' | 'answer') => {
     if (!isNaClReady || !ownKeyPair) {
@@ -514,6 +521,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } else if (type === 'answer') {
          addSystemMessage("Manual answer applied.", SystemMessageType.WEBRTC_STATUS);
+         // If we were the initiator and just received a manual answer, WebRTC connection might establish.
       }
     } catch (error) {
       console.error(`Error setting manual ${type} SDP:`, error);
@@ -546,10 +554,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
 
   useEffect(() => { 
+    // This effect runs on mount and ensures cleanup on unmount
     return () => {
       clearChatData(); 
     }
-  }, [clearChatData]);
+  }, [clearChatData]); // clearChatData is stable due to useCallback with its own stable dependencies
 
   const sendMessage = (text: string) => {
     if (!roomId || !ownKeyPair || !peerPublicKeyBase64) {
@@ -587,6 +596,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
     
+    // Fallback to BroadcastChannel if WebRTC not connected or send failed
     if (!messageSent && broadcastChannelRef.current) { 
       const bcMessage: BroadcastChannelMessage = {
         type: MessageType.TEXT,
@@ -595,7 +605,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       };
       try {
         broadcastChannelRef.current.postMessage(bcMessage);
-        // addSystemMessage("Message sent via BroadcastChannel (WebRTC not connected or send failed).", SystemMessageType.GENERAL); // Can be verbose
         messageSent = true;
       } catch (error) {
         console.error("Failed to send message via BroadcastChannel:", error);
