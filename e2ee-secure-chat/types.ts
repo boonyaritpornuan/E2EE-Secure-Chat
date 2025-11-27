@@ -7,10 +7,18 @@ export enum MessageType {
   TEXT = 'TEXT',
   FILE_INFO = 'FILE_INFO',
   SYSTEM = 'SYSTEM',
+  // Signaling types (handled via Socket.io now, but good to keep for reference or fallback)
   PUBLIC_KEY_SHARE = 'PUBLIC_KEY_SHARE',
   SDP_OFFER = 'SDP_OFFER',
   SDP_ANSWER = 'SDP_ANSWER',
   ICE_CANDIDATE = 'ICE_CANDIDATE',
+}
+
+export interface UserProfile {
+  socketId: string;
+  username: string;
+  publicKey: JsonWebKey;
+  avatarColor?: string; // Optional, generated locally
 }
 
 export enum SystemMessageType {
@@ -34,6 +42,7 @@ export interface EncryptedTextMessage extends BaseMessage {
   type: MessageType.TEXT;
   encryptedDataB64: string; // Base64 encoded encrypted ArrayBuffer
   ivB64: string; // Base64 encoded IV (Uint8Array)
+  isDirect?: boolean; // Added for DM distinction
 }
 
 export interface FileInfo {
@@ -77,6 +86,10 @@ export interface DecryptedMessage {
   id: string;
   timestamp: number;
   senderIsSelf: boolean;
+  senderName?: string; // Added for UI display
+  senderSocketId?: string; // Added for DM filtering
+  targetSocketId?: string; // Added for DM filtering
+  isDirect?: boolean;      // Added for DM distinction
   text?: string;
   fileInfo?: FileInfo;
   isSystem?: boolean;
@@ -85,6 +98,6 @@ export interface DecryptedMessage {
 
 export interface BroadcastChannelMessage {
   type: MessageType;
-  payload: any; 
+  payload: any;
   senderId: string; // Unique ID for the sender instance (tab/window)
 }
