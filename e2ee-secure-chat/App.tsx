@@ -5,6 +5,8 @@ import ChatRoom from './components/ChatRoom';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Sidebar from './components/Sidebar';
+import LandingPage from './components/LandingPage';
+import CookieConsent from './components/CookieConsent';
 
 const AppContent: React.FC = () => {
   const { roomId, activeChatTarget } = useChat();
@@ -33,9 +35,21 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  const [showLanding, setShowLanding] = React.useState(true);
+
+  if (showLanding) {
+    return (
+      <>
+        <LandingPage onStart={() => setShowLanding(false)} />
+        <CookieConsent />
+      </>
+    );
+  }
+
   return (
     <ChatProvider>
       <AppContent />
+      <CookieConsent />
     </ChatProvider>
   );
 };
