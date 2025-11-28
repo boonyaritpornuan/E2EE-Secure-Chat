@@ -1,8 +1,26 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useChat } from '../contexts/ChatContext';
 
 const Sidebar: React.FC = () => {
-    const { activeUsers, userIdentity, activeChatTarget, setActiveChatTarget, unreadCounts, chatRequests, acceptDirectChat } = useChat();
+    const { activeUsers, userIdentity, activeChatTarget, setActiveChatTarget, unreadCounts, chatRequests, acceptDirectChat, roomId, joinRoom, startDirectChat } = useChat();
+    const [targetUser, setTargetUser] = useState('');
+    const [targetRoom, setTargetRoom] = useState('');
+
+    const handleFindUser = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (targetUser.trim()) {
+            startDirectChat(targetUser.trim());
+            setTargetUser('');
+        }
+    };
+
+    const handleSwitchRoom = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (targetRoom.trim()) {
+            joinRoom(targetRoom.trim());
+            setTargetRoom('');
+        }
+    };
 
     return (
         <div className="w-64 bg-gray-900 border-r border-gray-700 flex flex-col h-full">
@@ -11,7 +29,7 @@ const Sidebar: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                {/* General Room Option */}
+                {/* Current Room Option */}
                 <div
                     onClick={() => setActiveChatTarget('ROOM')}
                     className={`flex items-center p-3 rounded-lg cursor-pointer transition-all relative ${activeChatTarget === 'ROOM'
@@ -23,8 +41,8 @@ const Sidebar: React.FC = () => {
                         <span className="text-lg">#</span>
                     </div>
                     <div>
-                        <div className="font-medium">General Room</div>
-                        <div className="text-xs opacity-70">Broadcast to all</div>
+                        <div className="font-medium">{roomId || 'Lobby'}</div>
+                        <div className="text-xs opacity-70">Broadcast to room</div>
                     </div>
 
                     {/* Room Unread Badge */}
@@ -35,7 +53,38 @@ const Sidebar: React.FC = () => {
                     )}
                 </div>
 
-                <div className="pt-4 pb-2 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                {/* Quick Connect Section */}
+                <div className="my-4 px-2 space-y-2">
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                        Quick Actions
+                    </div>
+                    <form onSubmit={handleSwitchRoom} className="flex">
+                        <input
+                            type="text"
+                            value={targetRoom}
+                            onChange={(e) => setTargetRoom(e.target.value)}
+                            placeholder="Switch Room..."
+                            className="flex-1 bg-gray-800 text-white text-xs px-2 py-2 rounded-l border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+                        />
+                        <button type="submit" className="bg-blue-600 text-white text-xs px-3 py-2 rounded-r hover:bg-blue-700 transition-colors">
+                            Join
+                        </button>
+                    </form>
+                    <form onSubmit={handleFindUser} className="flex">
+                        <input
+                            type="text"
+                            value={targetUser}
+                            onChange={(e) => setTargetUser(e.target.value)}
+                            placeholder="DM User..."
+                            className="flex-1 bg-gray-800 text-white text-xs px-2 py-2 rounded-l border border-gray-600 focus:outline-none focus:border-green-500 transition-colors"
+                        />
+                        <button type="submit" className="bg-green-600 text-white text-xs px-3 py-2 rounded-r hover:bg-green-700 transition-colors">
+                            Chat
+                        </button>
+                    </form>
+                </div>
+
+                <div className="pt-2 pb-2 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     Incoming Requests
                 </div>
                 {chatRequests.length === 0 && (

@@ -6,28 +6,37 @@ export interface UserIdentity {
     avatarColor: string;
 }
 
-const ADJECTIVES = ['Neon', 'Cyber', 'Quantum', 'Digital', 'Tech', 'Crypto', 'Secure', 'Hidden', 'Ghost', 'Shadow'];
-const NOUNS = ['Tiger', 'Wolf', 'Eagle', 'Fox', 'Bear', 'Dragon', 'Phoenix', 'Shark', 'Whale', 'Owl'];
-const COLORS = ['#EF4444', '#F97316', '#F59E0B', '#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899'];
+
 
 export const generateRandomIdentity = (): UserIdentity => {
-    const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-    const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
-    const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+    const adjectives = ['Quantum', 'Neon', 'Cyber', 'Digital', 'Crypto', 'Neural', 'Binary', 'Techno', 'Solar', 'Cosmic'];
+    const nouns = ['Wolf', 'Cipher', 'Ghost', 'Phantom', 'Ronin', 'Spectre', 'Viper', 'Raven', 'Nomad', 'Sentinel'];
+
+    const randomAdjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
+    const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+
+    // Generate a random hex color for avatar
+    const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899'];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
     return {
-        username: `${adj}${noun}`,
-        avatarColor: color
+        username: `${randomAdjective}${randomNoun}#${randomSuffix}`,
+        avatarColor: randomColor
     };
 };
 
 export const getStoredIdentity = (): UserIdentity | null => {
-    const stored = sessionStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : null;
+    // Use sessionStorage so each tab has a unique identity
+    const stored = sessionStorage.getItem('chat_identity');
+    if (stored) {
+        return JSON.parse(stored);
+    }
+    return null;
 };
 
-export const storeIdentity = (identity: UserIdentity) => {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(identity));
+export const storeIdentity = (identity: UserIdentity): void => {
+    sessionStorage.setItem('chat_identity', JSON.stringify(identity));
 };
 
 export const clearIdentity = () => {

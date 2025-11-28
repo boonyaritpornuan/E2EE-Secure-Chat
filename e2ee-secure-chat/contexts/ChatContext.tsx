@@ -13,6 +13,8 @@ import { generateRandomIdentity, getStoredIdentity, storeIdentity, UserIdentity 
 
 const SIGNALING_SERVER_URL = 'http://localhost:3001'; // Adjust if deployed
 
+import { FileTransferManager, FileTransferState } from '../utils/FileTransferManager';
+
 interface ChatContextType {
   roomId: string | null;
   joinRoom: (roomId: string) => Promise<void>;
@@ -25,11 +27,18 @@ interface ChatContextType {
   messages: DecryptedMessage[];
   sendMessage: (text: string) => Promise<void>;
 
-  // File Sharing
+  // File Sharing (Legacy Offer/Accept)
   sendFileOffer: (file: File, targetSocketId: string) => void;
   acceptFileOffer: (senderSocketId: string) => void;
   declineFileOffer: (senderSocketId: string) => void;
   fileOffers: Array<{ senderSocketId: string, fileMetadata: any }>;
+
+  // New Chunk-based File Transfer
+  activeTransfers: Record<string, FileTransferState>;
+  startFileTransfer: (file: File, targetSocketId: string) => Promise<void>;
+  acceptFileTransfer: (transferId: string) => void;
+  declineFileTransfer: (transferId: string) => void;
+  cancelTransfer: (transferId: string) => void;
 
   cryptoStatusMessage: string | null;
   activeChatTarget: string | 'ROOM';
@@ -58,6 +67,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [chatRequests, setChatRequests] = useState<Array<{ senderSocketId: string, senderUsername: string }>>([]);
 
   const [fileOffers, setFileOffers] = useState<Array<{ senderSocketId: string, fileMetadata: any }>>([]);
+  const [activeTransfers, setActiveTransfers] = useState<Record<string, FileTransferState>>({});
 
   const socketRef = useRef<Socket | null>(null);
   const sharedSecretsRef = useRef<Map<string, CryptoKey>>(new Map());
@@ -66,11 +76,28 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const activeUsersRef = useRef<UserProfile[]>([]);
   const activeChatTargetRef = useRef<string | 'ROOM'>('ROOM');
   const pendingTargetUserRef = useRef<string | null>(null);
+  const activeTransfersRef = useRef<Record<string, FileTransferState>>({});
+
+  // Track processed transfers to prevent duplicates (Persistent across renders)
+  const processedTransferIds = useRef(new Set<string>());
 
   useEffect(() => { ownKeyPairRef.current = ownKeyPair; }, [ownKeyPair]);
   useEffect(() => { activeUsersRef.current = activeUsers; }, [activeUsers]);
   useEffect(() => { activeChatTargetRef.current = activeChatTarget; }, [activeChatTarget]);
   useEffect(() => { pendingTargetUserRef.current = pendingTargetUser; }, [pendingTargetUser]);
+  useEffect(() => { activeTransfersRef.current = activeTransfers; }, [activeTransfers]);
+
+  // Define addSystemMessage FIRST to avoid hoisting issues
+  const addSystemMessage = useCallback((text: string, systemType: SystemMessageType = SystemMessageType.GENERAL) => {
+    setMessages((prev: DecryptedMessage[]) => [...prev, {
+      id: `sys-${Date.now()}-${Math.random()}`,
+      timestamp: Date.now(),
+      text,
+      isSystem: true,
+      senderIsSelf: false,
+      systemType,
+    }]);
+  }, []);
 
   useEffect(() => {
     const initIdentityAndKeys = async () => {
@@ -114,12 +141,218 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
+  // Helper to update transfer state safely
+  const updateTransferState = (id: string, updates: Partial<FileTransferState>) => {
+    setActiveTransfers(prev => ({
+      ...prev,
+      [id]: { ...prev[id], ...updates }
+    }));
+  };
+
+  // Track sending state to prevent double clicks
+  const isSendingRef = useRef(false);
+
+  const startFileTransfer = async (file: File, targetSocketId: string) => {
+    if (!socketRef.current || isSendingRef.current) return;
+    isSendingRef.current = true;
+
+    try {
+      // Helper to initiate transfer for a single peer
+      const initiateTransfer = async (peerId: string) => {
+        const transferId = `transfer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        const transferState: FileTransferState = {
+          transferId,
+          fileId: transferId,
+          fileName: file.name,
+          fileSize: file.size,
+          fileType: file.type,
+          chunksTotal: totalChunks,
+          chunksReceived: 0,
+          progress: 0,
+          status: 'pending',
+          isUpload: true,
+          peerSocketId: peerId,
+          startTime: Date.now()
+        };
+
+        // Store chunks
+        if (!(window as any).pendingFileChunks) {
+          (window as any).pendingFileChunks = new Map();
+        }
+        (window as any).pendingFileChunks.set(transferId, chunks);
+
+        // Update Ref IMMEDIATELY (Critical for consistency)
+        activeTransfersRef.current[transferId] = transferState;
+
+        // Update State
+        setActiveTransfers(prev => ({ ...prev, [transferId]: transferState }));
+
+        socketRef.current?.emit('file-offer', {
+          targetSocketId: peerId,
+          metadata: {
+            transferId,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            totalChunks
+          }
+        });
+      };
+
+      // Slice file once
+      const chunks = await FileTransferManager.sliceFile(file);
+      const totalChunks = chunks.length;
+
+      if (targetSocketId === 'ROOM') {
+        // Broadcast to all users in room (excluding self)
+        // Deduplicate peers based on socketId to prevent double sending
+        const uniquePeersMap = new Map<string, UserProfile>();
+        activeUsers.forEach(u => {
+          if (u.socketId !== socketRef.current?.id) {
+            uniquePeersMap.set(u.socketId, u);
+          }
+        });
+        const peers = Array.from(uniquePeersMap.values());
+
+        if (peers.length === 0) {
+          addSystemMessage("No other users in room to send file to.", SystemMessageType.ERROR);
+          return;
+        }
+
+        addSystemMessage(`Broadcasting file ${file.name} to ${peers.length} users...`, SystemMessageType.GENERAL);
+
+        for (const peer of peers) {
+          await initiateTransfer(peer.socketId);
+        }
+      } else {
+        // Direct Transfer
+        await initiateTransfer(targetSocketId);
+        addSystemMessage(`Sent file offer: ${file.name} to user.`, SystemMessageType.GENERAL);
+      }
+    } finally {
+      // Release lock after a short delay to prevent accidental double-clicks
+      setTimeout(() => {
+        isSendingRef.current = false;
+      }, 1000);
+    }
+  };
+
+  const acceptFileTransfer = (transferId: string) => {
+    const transfer = activeTransfers[transferId];
+    if (!transfer || !socketRef.current) return;
+
+    // Send acceptance to sender
+    socketRef.current.emit('file-accept', {
+      targetSocketId: transfer.peerSocketId,
+      transferId
+    });
+
+    // Update status to transferring
+    updateTransferState(transferId, { status: 'transferring' });
+    addSystemMessage(`Accepting file: ${transfer.fileName}`, SystemMessageType.GENERAL);
+  };
+
+  const declineFileTransfer = (transferId: string) => {
+    const transfer = activeTransfers[transferId];
+    if (!transfer || !socketRef.current) return;
+
+    // Send decline to sender
+    socketRef.current.emit('file-decline', {
+      targetSocketId: transfer.peerSocketId,
+      transferId
+    });
+
+    // Remove from active transfers
+    const newTransfers = { ...activeTransfers };
+    delete newTransfers[transferId];
+    setActiveTransfers(newTransfers);
+
+    addSystemMessage(`Declined file: ${transfer.fileName}`, SystemMessageType.GENERAL);
+  };
+
+  const sendChunks = async (transferId: string, targetSocketId: string, chunks: ArrayBuffer[]) => {
+    for (let i = 0; i < chunks.length; i++) {
+      // Check if cancelled
+      if (!activeTransfersRef.current[transferId]) return;
+
+      const chunk = chunks[i];
+      socketRef.current?.emit('file-chunk', {
+        targetSocketId,
+        transferId,
+        chunkId: i,
+        data: chunk
+      });
+
+      // Update progress locally (Throttle to every 1%)
+      const progress = Math.round(((i + 1) / chunks.length) * 100);
+      const prevProgress = Math.round((i / chunks.length) * 100);
+
+      if (progress > prevProgress) {
+        updateTransferState(transferId, {
+          chunksReceived: i + 1,
+          progress
+        });
+      }
+
+      // Yield to main thread every 20 chunks to prevent UI freeze
+      if (i % 20 === 0) {
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    socketRef.current?.emit('file-complete', { targetSocketId, transferId });
+
+    // Get transfer info for message
+    const transfer = activeTransfersRef.current[transferId];
+    if (transfer) {
+      updateTransferState(transferId, { status: 'completed', progress: 100 });
+      addSystemMessage(`✅ File sent: ${transfer.fileName} (${(transfer.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS);
+
+      // Auto-remove after 2 seconds
+      setTimeout(() => {
+        setActiveTransfers(current => {
+          const newTransfers = { ...current };
+          delete newTransfers[transferId];
+          return newTransfers;
+        });
+      }, 2000);
+    }
+  };
+
+  const cancelTransfer = (transferId: string) => {
+    const transfer = activeTransfers[transferId];
+    if (!transfer || !socketRef.current) return;
+
+    // Notify peer about cancellation
+    socketRef.current.emit('file-cancel', {
+      targetSocketId: transfer.peerSocketId,
+      transferId
+    });
+
+    // Remove from active transfers
+    const newTransfers = { ...activeTransfers };
+    delete newTransfers[transferId];
+    setActiveTransfers(newTransfers);
+
+    const action = transfer.isUpload ? 'sending' : 'receiving';
+    addSystemMessage(`❌ Cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR);
+  };
+
+  // Sync Ref with State (Must be at top level)
+  useEffect(() => {
+    activeTransfersRef.current = activeTransfers;
+  }, [activeTransfers]);
+
+  // Consolidated Socket Connection and Event Listeners
   useEffect(() => {
     if (!userIdentity) return;
     if (!ownKeyPair) return; // Wait for keys
 
+    // Prevent multiple connections
     if (socketRef.current) return;
 
+    console.log("Initializing socket connection...");
     const socket = io(SIGNALING_SERVER_URL, {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -141,8 +374,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
       }
 
-      // Auto-rejoin if we have state (handles actual network reconnects)
-      // IMPORTANT: Do NOT auto-join if the room is "Direct Chat" (virtual room)
+      // Auto-rejoin if we have state
       if (roomId && roomId !== 'Direct Chat' && userIdentity && ownKeyPairRef.current) {
         exportPublicKeyJwk(ownKeyPairRef.current.publicKey).then(jwk => {
           socket.emit('join-room', {
@@ -154,11 +386,193 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     });
 
+    // --- File Transfer Listeners ---
+
+    // Cleanup previous listeners to prevent duplicates
+    socket.off('file-offer');
+    socket.off('file-accept');
+    socket.off('file-decline');
+    socket.off('file-chunk');
+    socket.off('file-complete');
+    socket.off('file-cancel');
+
+    socket.on('file-offer', ({ senderSocketId, metadata, fileMetadata }: { senderSocketId: string, metadata: any, fileMetadata: any }) => {
+      const data = metadata || fileMetadata;
+      console.log("Received file offer:", data);
+
+      const transferState: FileTransferState = {
+        transferId: data.transferId,
+        fileId: data.transferId,
+        fileName: data.fileName || data.name || `unknown_file_${Date.now()}`,
+        fileSize: data.fileSize || data.size,
+        fileType: data.fileType || data.type,
+        chunksTotal: data.totalChunks || data.chunksTotal,
+        chunksReceived: 0,
+        progress: 0,
+        status: 'pending',
+        isUpload: false,
+        peerSocketId: senderSocketId,
+        chunks: new Map(),
+        startTime: Date.now()
+      };
+
+      // Update Ref IMMEDIATELY to ensure fileName is available for completion handler
+      activeTransfersRef.current[data.transferId] = transferState;
+
+      setActiveTransfers(prev => ({ ...prev, [data.transferId]: transferState }));
+      addSystemMessage(`📎 File offer: ${transferState.fileName} (${(transferState.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS);
+    });
+
+    socket.on('file-accept', async ({ transferId }: { transferId: string }) => {
+      const transfer = activeTransfersRef.current[transferId];
+      if (!transfer || !transfer.isUpload) return;
+
+      addSystemMessage(`File accepted! Sending ${transfer.fileName}...`, SystemMessageType.GENERAL);
+
+      const chunks = (window as any).pendingFileChunks?.get(transferId);
+      if (chunks) {
+        updateTransferState(transferId, {
+          status: 'transferring',
+          chunksTotal: chunks.length
+        });
+        await sendChunks(transferId, transfer.peerSocketId, chunks);
+        (window as any).pendingFileChunks?.delete(transferId);
+      } else {
+        console.error('No pending chunks found for transfer:', transferId);
+        addSystemMessage(`Error: File data not found`, SystemMessageType.ERROR);
+      }
+    });
+
+    socket.on('file-decline', ({ transferId }: { transferId: string }) => {
+      addSystemMessage(`File transfer declined.`, SystemMessageType.ERROR);
+      setActiveTransfers(prev => {
+        const newTransfers = { ...prev };
+        delete newTransfers[transferId];
+        return newTransfers;
+      });
+    });
+
+    socket.on('file-chunk', ({ transferId, chunkId, data }: { transferId: string, chunkId: number, data: ArrayBuffer }) => {
+      setActiveTransfers(prev => {
+        const transfer = prev[transferId];
+        if (!transfer || transfer.status !== 'transferring') return prev;
+
+        const newChunks = new Map(transfer.chunks);
+        newChunks.set(chunkId, data);
+
+        const chunksReceived = newChunks.size;
+        const progress = Math.round((chunksReceived / transfer.chunksTotal) * 100);
+
+        return {
+          ...prev,
+          [transferId]: {
+            ...transfer,
+            chunks: newChunks,
+            chunksReceived,
+            progress
+          }
+        };
+      });
+    });
+
+    socket.on('file-complete', ({ transferId }: { transferId: string }) => {
+      // 1. Absolute Guard: Check if already processed
+      if (processedTransferIds.current.has(transferId)) {
+        console.log(`Duplicate completion ignored for ${transferId}`);
+        return;
+      }
+
+      const transfer = activeTransfersRef.current[transferId];
+
+      // 2. State Guard
+      if (!transfer || transfer.status === 'completed') return;
+
+      // 3. Mark as processed IMMEDIATELY
+      processedTransferIds.current.add(transferId);
+
+      // Update Ref to reflect status (for UI consistency if state lags)
+      activeTransfersRef.current[transferId] = { ...transfer, status: 'completed', progress: 100 };
+
+      console.log(`File complete signal for ${transfer.fileName} (ID: ${transferId})`);
+
+      if (!transfer.isUpload) {
+        try {
+          const blob = FileTransferManager.reassembleFile(transfer.chunks!, transfer.chunksTotal, transfer.fileType);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+
+          // Force Filename
+          const safeName = transfer.fileName && transfer.fileName.trim() !== ''
+            ? transfer.fileName
+            : `received_file_${Date.now()}.bin`;
+
+          a.setAttribute('download', safeName);
+          document.body.appendChild(a);
+
+          console.log(`Attempting download: ${safeName} from ${url}`);
+          a.click();
+
+          // Cleanup
+          setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, 1000); // 1 second is enough usually
+
+          addSystemMessage(`✅ File received: ${safeName}`, SystemMessageType.WEBRTC_STATUS);
+        } catch (err) {
+          console.error("Download failed:", err);
+          addSystemMessage(`Error saving file: ${err}`, SystemMessageType.ERROR);
+        }
+      } else {
+        addSystemMessage(`✅ File sent: ${transfer.fileName}`, SystemMessageType.WEBRTC_STATUS);
+      }
+
+      // 3. Update React State (Visuals)
+      setActiveTransfers(prev => ({
+        ...prev,
+        [transferId]: { ...prev[transferId], status: 'completed' as const, progress: 100 }
+      }));
+
+      // 4. Cleanup UI
+      setTimeout(() => {
+        setActiveTransfers(current => {
+          const newTransfers = { ...current };
+          delete newTransfers[transferId];
+          return newTransfers;
+        });
+      }, 5000);
+    });
+
+    socket.on('file-cancel', ({ transferId }: { transferId: string }) => {
+      setActiveTransfers(prev => {
+        const transfer = prev[transferId];
+        if (!transfer) return prev;
+        const action = transfer.isUpload ? 'receiving' : 'sending';
+        addSystemMessage(`❌ Peer cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR);
+        const newTransfers = { ...prev };
+        delete newTransfers[transferId];
+        return newTransfers;
+      });
+    });
+
+    // --- Chat Listeners ---
+
     socket.on('room-users', async (users: UserProfile[]) => {
       console.log("Received room users:", users);
-      setActiveUsers(users);
+      setActiveUsers(prev => {
+        const dmPartners = prev.filter(u => sharedSecretsRef.current.has(u.socketId) || activeChatTargetRef.current === u.socketId);
+        const newUsers = [...users];
+        dmPartners.forEach(dmUser => {
+          if (!newUsers.find(u => u.socketId === dmUser.socketId)) {
+            newUsers.push(dmUser);
+          }
+        });
+        return newUsers;
+      });
 
-      // Check pending target using Ref
+      // Handle pending target logic...
       const pending = pendingTargetUserRef.current;
       if (pending) {
         const targetInRoom = users.find(u => u.username === pending);
@@ -168,18 +582,14 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           socket.emit('direct-chat-request', { targetUsername: targetInRoom.username, senderUsername: userIdentity?.username });
           addSystemMessage(`Found user ${targetInRoom.username} in room.`, SystemMessageType.GENERAL);
         } else {
-          // Not in room, try global search
-          addSystemMessage(`User ${pending} not in room, searching globally...`, SystemMessageType.GENERAL);
           socket.emit('find-user', pending, async (response: { found: boolean, user?: UserProfile }) => {
             if (response.found && response.user) {
               const user = response.user;
-              // Add to activeUsers so they appear in UI and we can track them
               setActiveUsers(prev => {
                 if (prev.find(u => u.socketId === user.socketId)) return prev;
                 return [...prev, user];
               });
-
-              // Derive secret
+              // Key derivation...
               const currentKeyPair = ownKeyPairRef.current;
               if (currentKeyPair) {
                 try {
@@ -188,7 +598,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   sharedSecretsRef.current.set(user.socketId, secret);
                 } catch (e) { console.error("Key derivation error:", e); }
               }
-
               handleSetActiveChatTarget(user.socketId);
               setPendingTargetUser(null);
               socket.emit('direct-chat-request', { targetUsername: user.username, senderUsername: userIdentity?.username });
@@ -200,6 +609,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
 
+      // Key derivation for room users
       const currentKeyPair = ownKeyPairRef.current;
       if (currentKeyPair) {
         for (const user of users) {
@@ -245,22 +655,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (user) {
           addSystemMessage(`${user.username} left the room.`, SystemMessageType.CONNECTION_STATUS);
         }
+        if (sharedSecretsRef.current.has(socketId)) return prev;
         return prev.filter((u: UserProfile) => u.socketId !== socketId);
       });
-      sharedSecretsRef.current.delete(socketId);
-
-      // If the user we are chatting with leaves/disconnects, close the chat
-      if (activeChatTargetRef.current === socketId) {
-        handleSetActiveChatTarget('ROOM');
-        addSystemMessage(`Chat closed because the user left.`, SystemMessageType.GENERAL);
-      }
     });
 
     socket.on('encrypted-message', async (data: { senderSocketId: string, senderUsername?: string, payload: EncryptedTextMessage }) => {
       const { senderSocketId, senderUsername, payload } = data;
       let secret = sharedSecretsRef.current.get(senderSocketId);
 
-      // If secret missing, try to derive from payload key
       if (!secret && payload.senderPublicKeyJwkString) {
         try {
           const peerKey = await importPublicKeyJwk(JSON.parse(payload.senderPublicKeyJwkString));
@@ -268,40 +671,25 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             secret = await deriveSharedSecret(ownKeyPairRef.current.privateKey, peerKey);
             sharedSecretsRef.current.set(senderSocketId, secret);
           }
-        } catch (e) {
-          console.error("Failed to derive secret from payload:", e);
-        }
+        } catch (e) { console.error("Failed to derive secret from payload:", e); }
       }
 
-      if (!secret) {
-        console.warn(`Received message from ${senderSocketId} but no shared secret found.`);
-        return;
-      }
+      if (!secret) return;
 
       try {
         const decryptedText = await decryptText(payload.encryptedDataB64, payload.ivB64, secret);
-
         if (decryptedText) {
           const senderProfile = activeUsersRef.current.find(u => u.socketId === senderSocketId);
           const displayName = senderProfile?.username || senderUsername || 'Unknown';
-
-          // Handle Unread Counts using Ref
           const currentTarget = activeChatTargetRef.current;
 
           if (payload.isDirect) {
             if (currentTarget !== senderSocketId) {
-              setUnreadCounts(prev => ({
-                ...prev,
-                [senderSocketId]: (prev[senderSocketId] || 0) + 1
-              }));
+              setUnreadCounts(prev => ({ ...prev, [senderSocketId]: (prev[senderSocketId] || 0) + 1 }));
             }
           } else {
-            // Room Message
             if (currentTarget !== 'ROOM') {
-              setUnreadCounts(prev => ({
-                ...prev,
-                'ROOM': (prev['ROOM'] || 0) + 1
-              }));
+              setUnreadCounts(prev => ({ ...prev, 'ROOM': (prev['ROOM'] || 0) + 1 }));
             }
           }
 
@@ -315,21 +703,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             isDirect: payload.isDirect
           } as DecryptedMessage]);
         }
-      } catch (e) {
-        console.error("Decryption error:", e);
-      }
-    });
-
-    socket.on('file-offer', ({ senderSocketId, fileMetadata }: { senderSocketId: string, fileMetadata: any }) => {
-      setFileOffers((prev: Array<{ senderSocketId: string, fileMetadata: any }>) => [...prev, { senderSocketId, fileMetadata }]);
-    });
-
-    socket.on('file-response', ({ senderSocketId, accepted }: { senderSocketId: string, accepted: boolean }) => {
-      if (accepted) {
-        addSystemMessage(`User accepted file offer. Starting transfer... (Simulated)`, SystemMessageType.WEBRTC_STATUS);
-      } else {
-        addSystemMessage(`User declined file offer.`, SystemMessageType.ERROR);
-      }
+      } catch (e) { console.error("Decryption error:", e); }
     });
 
     socket.on('direct-chat-request', ({ senderSocketId, senderUsername }: { senderSocketId: string, senderUsername: string }) => {
@@ -341,37 +715,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     socket.on('end-direct-chat', ({ senderSocketId, senderUsername }: { senderSocketId: string, senderUsername: string }) => {
       addSystemMessage(`${senderUsername} ended the chat.`, SystemMessageType.CONNECTION_STATUS);
-
-      // If we are currently chatting with them, switch back to Room view
       if (activeChatTargetRef.current === senderSocketId) {
         handleSetActiveChatTarget('ROOM');
-        // If we were in a virtual room, we might want to clear roomId too, 
-        // but for now let's assume we want to go back to the "Room" context if it exists.
-        // If roomId was 'Direct Chat', we should probably clear it to go back to Lobby?
-        // But handleSetActiveChatTarget doesn't touch roomId.
-
-        // Actually, if we are in 'Direct Chat' virtual room, we should probably leave it?
-        // But we don't know if we have other chats. 
-        // Let's just switch target for now.
       }
     });
 
     return () => {
+      console.log("Cleaning up socket connection...");
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [userIdentity, ownKeyPair]); // Added ownKeyPair dependency
-
-  const addSystemMessage = useCallback((text: string, systemType: SystemMessageType = SystemMessageType.GENERAL) => {
-    setMessages((prev: DecryptedMessage[]) => [...prev, {
-      id: `sys-${Date.now()}-${Math.random()}`,
-      timestamp: Date.now(),
-      text,
-      isSystem: true,
-      senderIsSelf: false,
-      systemType,
-    }]);
-  }, []);
+  }, [userIdentity, ownKeyPair]); // Run once when identity/keys are ready
 
   const deriveSecretForUser = async (targetSocketId: string, publicKeyJwk: JsonWebKey) => {
     if (!ownKeyPair) return;
@@ -398,7 +752,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     setRoomId(newRoomId);
-    setMessages([]);
+    // Only clear ROOM messages, keep DMs
+    setMessages(prev => prev.filter(m => m.isDirect));
     setCryptoStatusMessage("Joined room. Waiting for messages...");
   };
 
@@ -483,18 +838,32 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const leaveRoom = () => {
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current.connect();
+    if (socketRef.current && roomId && roomId !== 'Direct Chat') {
+      // Emit leave-room event to server
+      socketRef.current.emit('leave-room');
     }
+
+    // Clear room state but preserve DMs and identity
     setRoomId(null);
-    setMessages([]);
-    setActiveUsers([]);
-    sharedSecretsRef.current.clear();
-    setOwnKeyPair(null);
-    setActiveChatTarget('ROOM');
-    setUnreadCounts({});
-    setPendingTargetUser(null);
+
+    // Only clear room messages, keep DMs
+    setMessages(prev => prev.filter(m => m.isDirect));
+
+    // Don't clear activeUsers - keep DM partners
+    // Don't clear sharedSecretsRef - keep encryption keys for DMs
+    // Don't clear ownKeyPair - keep our identity
+
+    // Switch to ROOM view if we were viewing room
+    if (activeChatTarget === 'ROOM') {
+      setActiveChatTarget('ROOM');
+    }
+
+    // Clear room unread count
+    setUnreadCounts(prev => {
+      const newCounts = { ...prev };
+      delete newCounts['ROOM'];
+      return newCounts;
+    });
   };
 
   const closeDirectChat = (targetSocketId: string) => {
@@ -629,6 +998,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       userIdentity, ownKeyPair, activeUsers,
       messages, sendMessage,
       sendFileOffer, acceptFileOffer, declineFileOffer, fileOffers,
+      activeTransfers, startFileTransfer, acceptFileTransfer, declineFileTransfer, cancelTransfer,
       cryptoStatusMessage,
       activeChatTarget, setActiveChatTarget: handleSetActiveChatTarget,
       unreadCounts,

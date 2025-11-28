@@ -7,7 +7,7 @@ const ChatRoom: React.FC = () => {
     roomId, messages, sendMessage,
     cryptoStatusMessage,
     activeUsers,
-    sendFileOffer, fileOffers, acceptFileOffer, declineFileOffer,
+    activeTransfers, startFileTransfer, acceptFileTransfer, declineFileTransfer, cancelTransfer,
     activeChatTarget
   } = useChat();
 
@@ -17,14 +17,11 @@ const ChatRoom: React.FC = () => {
 
   // Filter messages based on active target
   const filteredMessages = messages.filter(msg => {
-    if (msg.isSystem) return activeChatTarget === 'ROOM'; // Show system messages only in Room view? Or maybe global?
+    if (msg.isSystem) return activeChatTarget === 'ROOM';
 
     if (activeChatTarget === 'ROOM') {
-      return !msg.isDirect; // Show only public messages
+      return !msg.isDirect;
     } else {
-      // Show DMs with this specific user
-      // 1. Sent by me TO them (targetSocketId === activeChatTarget)
-      // 2. Sent by them TO me (senderSocketId === activeChatTarget)
       return msg.isDirect && (
         (msg.senderIsSelf && msg.targetSocketId === activeChatTarget) ||
         (!msg.senderIsSelf && msg.senderSocketId === activeChatTarget)
@@ -48,19 +45,27 @@ const ChatRoom: React.FC = () => {
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
 
       if (activeChatTarget === 'ROOM') {
-        if (activeUsers.length > 0) {
-          activeUsers.forEach(u => sendFileOffer(file, u.socketId));
-          alert(`Offered ${file.name} to all users.`);
+        // Send file to all users in the room
+        try {
+          // Send to each active user
+          for (const user of activeUsers) {
+            await startFileTransfer(file, user.socketId);
+          }
+        } catch (e) {
+          console.error("Group transfer failed:", e);
         }
       } else {
-        // DM File Offer
-        sendFileOffer(file, activeChatTarget);
-        alert(`Offered ${file.name} to ${targetUser?.username}.`);
+        // DM File Transfer
+        try {
+          await startFileTransfer(file, activeChatTarget);
+        } catch (e) {
+          console.error("Transfer failed:", e);
+        }
       }
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -68,7 +73,7 @@ const ChatRoom: React.FC = () => {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [filteredMessages, fileOffers]);
+  }, [filteredMessages, activeTransfers]); // Added activeTransfers dependency
 
   const renderMessageText = (msg: DecryptedMessage) => {
     let prefix = "";
@@ -84,6 +89,12 @@ const ChatRoom: React.FC = () => {
     }
     return prefix + msg.text;
   }
+
+  // Filter transfers relevant to current view
+  const currentTransfers = Object.values(activeTransfers).filter(t =>
+    (activeChatTarget !== 'ROOM' && t.peerSocketId === activeChatTarget) ||
+    (activeChatTarget === 'ROOM' && false) // Hide transfers in room view for now
+  );
 
   return (
     <div className="flex flex-col h-full bg-gray-800 relative">
@@ -110,7 +121,7 @@ const ChatRoom: React.FC = () => {
         </div>
         {activeChatTarget !== 'ROOM' && (
           <button
-            onClick={() => closeDirectChat(activeChatTarget)}
+            onClick={() => useChat().closeDirectChat(activeChatTarget)} // Access via hook directly if needed or destructure
             className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors"
           >
             Close Chat
@@ -118,34 +129,70 @@ const ChatRoom: React.FC = () => {
         )}
       </div>
 
-      {/* File Offers Area */}
-      {fileOffers.length > 0 && (
-        <div className="bg-gray-900 p-2 border-b border-gray-700 space-y-2">
-          {fileOffers.map((offer, idx) => (
-            <div key={idx} className="flex items-center justify-between bg-gray-800 p-2 rounded border border-gray-600">
-              <div className="flex items-center space-x-2">
-                <span className="text-2xl">📄</span>
-                <div>
-                  <p className="text-sm text-white font-bold">{offer.fileMetadata.name}</p>
-                  <p className="text-xs text-gray-400">
-                    {(offer.fileMetadata.size / 1024).toFixed(1)} KB • From {activeUsers.find(u => u.socketId === offer.senderSocketId)?.username || 'Unknown'}
-                  </p>
+      {/* Active File Transfers */}
+      {currentTransfers.length > 0 && (
+        <div className="bg-gray-900 p-2 border-b border-gray-700 space-y-2 max-h-40 overflow-y-auto">
+          {currentTransfers.map((transfer) => (
+            <div key={transfer.transferId} className="bg-gray-800 p-3 rounded border border-gray-600 flex flex-col space-y-2">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center space-x-2">
+                  <span className="text-xl">
+                    {transfer.status === 'pending' ? '📎' : transfer.isUpload ? '⬆️' : '⬇️'}
+                  </span>
+                  <div>
+                    <p className="text-sm font-bold text-white">{transfer.fileName}</p>
+                    <p className="text-xs text-gray-400">
+                      {(transfer.fileSize / 1024).toFixed(1)} KB • {transfer.status}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex space-x-2">
+                  {transfer.status === 'pending' && !transfer.isUpload && (
+                    <>
+                      <button
+                        onClick={() => acceptFileTransfer(transfer.transferId)}
+                        className="bg-green-600 hover:bg-green-700 text-white text-xs px-3 py-1 rounded transition-colors"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => declineFileTransfer(transfer.transferId)}
+                        className="bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1 rounded transition-colors"
+                      >
+                        Decline
+                      </button>
+                    </>
+                  )}
+                  {transfer.status === 'pending' && transfer.isUpload && (
+                    <button
+                      onClick={() => cancelTransfer(transfer.transferId)}
+                      className="bg-gray-600 hover:bg-gray-700 text-white text-xs px-3 py-1 rounded transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  {transfer.status === 'transferring' && (
+                    <button
+                      onClick={() => cancelTransfer(transfer.transferId)}
+                      className="bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1 rounded transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => acceptFileOffer(offer.senderSocketId)}
-                  className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors"
-                >
-                  Accept
-                </button>
-                <button
-                  onClick={() => declineFileOffer(offer.senderSocketId)}
-                  className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
-                >
-                  Decline
-                </button>
-              </div>
+              {/* Progress Bar - only show when transferring */}
+              {transfer.status === 'transferring' && (
+                <>
+                  <div className="w-full bg-gray-700 rounded-full h-2.5">
+                    <div
+                      className={`h-2.5 rounded-full ${transfer.status === 'completed' ? 'bg-green-500' : 'bg-blue-600'}`}
+                      style={{ width: `${transfer.progress}%` }}
+                    ></div>
+                  </div>
+                  <div className="text-right text-xs text-gray-400">{transfer.progress}%</div>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -156,7 +203,7 @@ const ChatRoom: React.FC = () => {
         {filteredMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-50">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03 8-9 8s9 3.582 9 8z" />
             </svg>
             <p>No messages yet.</p>
           </div>

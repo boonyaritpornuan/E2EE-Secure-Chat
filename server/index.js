@@ -117,12 +117,21 @@ io.on('connection', (socket) => {
         }
     });
 
-    // File Sharing Signals
-    socket.on('file-offer', ({ targetSocketId, fileMetadata }) => {
-        io.to(targetSocketId).emit('file-offer', {
-            senderSocketId: socket.id,
-            fileMetadata
-        });
+    // Unified File Offer Handler (Supports both Legacy and New Chunk-based)
+    socket.on('file-offer', ({ targetSocketId, metadata, fileMetadata }) => {
+        // Support both property names
+        const finalMetadata = metadata || fileMetadata;
+
+        if (finalMetadata) {
+            io.to(targetSocketId).emit('file-offer', {
+                senderSocketId: socket.id,
+                metadata: finalMetadata, // Standardize on 'metadata' for receiver, or keep original structure if needed
+                fileMetadata: finalMetadata // Send both to be safe for all client versions
+            });
+            console.log(`File offer sent: ${finalMetadata.fileName || finalMetadata.name} from ${socket.id} to ${targetSocketId}`);
+        } else {
+            console.warn(`Received file-offer with no metadata from ${socket.id}`);
+        }
     });
 
     socket.on('file-response', ({ targetSocketId, accepted }) => {
@@ -141,6 +150,49 @@ io.on('connection', (socket) => {
                 senderUsername
             });
         }
+    });
+
+    socket.on('file-accept', ({ targetSocketId, transferId }) => {
+        io.to(targetSocketId).emit('file-accept', {
+            transferId
+        });
+        console.log(`File accepted: ${transferId}`);
+    });
+
+    socket.on('file-decline', ({ targetSocketId, transferId }) => {
+        io.to(targetSocketId).emit('file-decline', {
+            transferId
+        });
+        console.log(`File declined: ${transferId}`);
+    });
+
+    socket.on('file-chunk', ({ targetSocketId, transferId, chunkId, data }) => {
+        io.to(targetSocketId).emit('file-chunk', {
+            transferId,
+            chunkId,
+            data
+        });
+    });
+
+    socket.on('file-complete', ({ targetSocketId, transferId }) => {
+        io.to(targetSocketId).emit('file-complete', {
+            transferId
+        });
+        console.log(`File transfer completed: ${transferId}`);
+    });
+
+    socket.on('file-cancel', ({ targetSocketId, transferId }) => {
+        io.to(targetSocketId).emit('file-cancel', {
+            transferId
+        });
+        console.log(`File transfer cancelled: ${transferId}`);
+    });
+
+    socket.on('end-direct-chat', ({ targetSocketId }) => {
+        io.to(targetSocketId).emit('end-direct-chat', {
+            senderSocketId: socket.id,
+            senderUsername: 'User' // Could be enhanced to include actual username
+        });
     });
 
     socket.on('disconnect', () => {

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useChat } from '../contexts/ChatContext';
+import { generateRandomIdentity, storeIdentity } from '../utils/userManager';
 
 const CreateOrJoinRoom: React.FC = () => {
   const { joinRoom, userIdentity, unreadCounts, messages, setActiveChatTarget, setPendingTargetUser, chatRequests, startDirectChat, acceptDirectChat } = useChat();
@@ -105,15 +106,37 @@ const CreateOrJoinRoom: React.FC = () => {
           Serverless, End-to-End Encrypted.
         </p>
 
-        <div className="mb-6 p-4 bg-gray-900 rounded-md border border-gray-700 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-gray-500 uppercase">Your Identity</p>
-            <p className="text-lg font-bold text-white">{userIdentity?.username || 'Loading...'}</p>
+        <div className="mb-6 p-4 bg-gray-900 rounded-md border border-gray-700 flex items-center justify-between group relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          <div className="relative z-10">
+            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Your Identity</p>
+            <div className="flex items-center space-x-2">
+              <p className="text-lg font-bold text-white font-mono tracking-tight">
+                {userIdentity?.username || 'Loading...'}
+              </p>
+              <button
+                onClick={() => {
+                  const newId = generateRandomIdentity();
+                  storeIdentity(newId);
+                  window.location.reload();
+                }}
+                className="p-1 text-gray-500 hover:text-blue-400 transition-colors"
+                title="Regenerate Identity"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div
-            className="w-10 h-10 rounded-full"
+            className="w-12 h-12 rounded-full border-2 border-gray-700 shadow-lg relative z-10"
             style={{ backgroundColor: userIdentity?.avatarColor || '#333' }}
-          />
+          >
+            <div className="w-full h-full flex items-center justify-center text-white font-bold text-xl opacity-80">
+              {userIdentity?.username?.charAt(0) || '?'}
+            </div>
+          </div>
         </div>
 
         {/* Tabs */}
