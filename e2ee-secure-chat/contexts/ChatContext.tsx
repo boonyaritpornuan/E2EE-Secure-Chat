@@ -11,9 +11,10 @@ import {
 } from '../utils/encryptionService';
 import { generateRandomIdentity, getStoredIdentity, storeIdentity, UserIdentity } from '../utils/userManager';
 
-const SIGNALING_SERVER_URL = 'http://localhost:3001'; // Adjust if deployed
+const SIGNALING_SERVER_URL = import.meta.env.VITE_SIGNALING_SERVER_URL || 'http://localhost:3001';
 
 import { FileTransferManager, FileTransferState } from '../utils/FileTransferManager';
+import { getKey, storeKey } from '../utils/keyStorage';
 
 interface ChatContextType {
   roomId: string | null;
@@ -50,6 +51,10 @@ interface ChatContextType {
   startDirectChat: (targetUsername: string) => Promise<void>;
   acceptDirectChat: (targetSocketId: string, targetUsername: string) => Promise<void>;
   closeDirectChat: (targetSocketId: string) => void;
+  getSafetyNumber: (targetSocketId: string) => Promise<string | null>;
+  fetchServerStats: () => Promise<any>;
+  typingUsers: string[];
+  sendTyping: (isTyping: boolean) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -108,11 +113,34 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       setUserIdentity(identity);
 
-      // Generate keys immediately
-      setCryptoStatusMessage("Generating identity keys...");
-      const keys = await generateAppKeyPair();
-      setOwnKeyPair(keys);
-      setCryptoStatusMessage("Ready.");
+      setCryptoStatusMessage("Loading identity keys...");
+
+      try {
+        // Try to load existing keys from IndexedDB
+        const storedPublicKey = await getKey('publicKey');
+        const storedPrivateKey = await getKey('privateKey');
+
+        if (storedPublicKey && storedPrivateKey) {
+          console.log("Loaded keys from persistence.");
+          setOwnKeyPair({ publicKey: storedPublicKey, privateKey: storedPrivateKey });
+          setCryptoStatusMessage("Ready (Restored).");
+        } else {
+          // Generate new keys if not found
+          console.log("Generating new keys...");
+          setCryptoStatusMessage("Generating identity keys...");
+          const keys = await generateAppKeyPair();
+
+          // Store new keys
+          await storeKey('publicKey', keys.publicKey);
+          await storeKey('privateKey', keys.privateKey);
+
+          setOwnKeyPair(keys);
+          setCryptoStatusMessage("Ready (New).");
+        }
+      } catch (err) {
+        console.error("Failed to load/save keys:", err);
+        setCryptoStatusMessage("Key Error. Check Console.");
+      }
     };
     initIdentityAndKeys();
   }, []);
@@ -798,6 +826,39 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const getSafetyNumber = async (targetSocketId: string): Promise<string | null> => {
+    const secret = sharedSecretsRef.current.get(targetSocketId);
+    if (!secret) return null;
+
+    try {
+      // Export secret key to raw bytes
+      const exported = await crypto.subtle.exportKey('raw', secret);
+      const buffer = new Uint8Array(exported);
+
+      // Create a simple hex string or hash
+      // For a "Safety Number", we usually want a numeric string or easily comparable format.
+      // Here we'll take the first 8 bytes and convert to a grouped hex string.
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      // Format as groups: 00000 00000 ...
+      return hashHex.substring(0, 20).match(/.{1,5}/g)?.join(' ') || hashHex;
+    } catch (e) {
+      console.error("Error generating safety number:", e);
+      return null;
+    }
+  };
+
+  const fetchServerStats = async (): Promise<any> => {
+    if (!socketRef.current) return null;
+    return new Promise((resolve) => {
+      socketRef.current?.emit('get-stats', (stats: any) => {
+        resolve(stats);
+      });
+    });
+  };
+
   const acceptDirectChat = async (targetSocketId: string, targetUsername: string) => {
     if (!socketRef.current || !userIdentity || !ownKeyPair) return;
 
@@ -992,23 +1053,90 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setFileOffers((prev: Array<{ senderSocketId: string, fileMetadata: any }>) => prev.filter((o: { senderSocketId: string }) => o.senderSocketId !== senderSocketId));
   };
 
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const sendTyping = (isTyping: boolean) => {
+    if (!socketRef.current) return;
+
+    const payload = activeChatTarget === 'ROOM'
+      ? { targetRoomId: roomId }
+      : { targetSocketId: activeChatTarget };
+
+    if (isTyping) {
+      socketRef.current.emit('typing', payload);
+
+      // Auto-stop typing after 3 seconds if no new input
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        socketRef.current?.emit('stop-typing', payload);
+      }, 3000);
+    } else {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      socketRef.current.emit('stop-typing', payload);
+    }
+  };
+
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    socketRef.current.on('typing', ({ senderSocketId }) => {
+      // Only show typing if it's relevant to current view
+      if (activeChatTarget === 'ROOM') {
+        // For room, we might want to map socketId to username, but for now just show someone is typing
+        // Or check if sender is in activeUsers
+        setTypingUsers(prev => [...prev, senderSocketId]);
+      } else if (activeChatTarget === senderSocketId) {
+        setTypingUsers(prev => [...prev, senderSocketId]);
+      }
+    });
+
+    socketRef.current.on('stop-typing', ({ senderSocketId }) => {
+      setTypingUsers(prev => prev.filter(id => id !== senderSocketId));
+    });
+
+    return () => {
+      socketRef.current?.off('typing');
+      socketRef.current?.off('stop-typing');
+    };
+  }, [activeChatTarget, roomId]);
+
+  const value = {
+    roomId,
+    joinRoom,
+    leaveRoom,
+    userIdentity,
+    ownKeyPair,
+    activeUsers,
+    messages,
+    sendMessage,
+    sendFileOffer,
+    acceptFileOffer,
+    declineFileOffer,
+    fileOffers,
+    activeTransfers,
+    startFileTransfer,
+    acceptFileTransfer,
+    declineFileTransfer,
+    cancelTransfer,
+    cryptoStatusMessage,
+    activeChatTarget,
+    setActiveChatTarget: handleSetActiveChatTarget,
+    unreadCounts,
+    setPendingTargetUser,
+    findUser,
+    chatRequests,
+    startDirectChat,
+    acceptDirectChat,
+    closeDirectChat,
+    getSafetyNumber,
+    fetchServerStats,
+    typingUsers,
+    sendTyping
+  };
+
   return (
-    <ChatContext.Provider value={{
-      roomId, joinRoom, leaveRoom,
-      userIdentity, ownKeyPair, activeUsers,
-      messages, sendMessage,
-      sendFileOffer, acceptFileOffer, declineFileOffer, fileOffers,
-      activeTransfers, startFileTransfer, acceptFileTransfer, declineFileTransfer, cancelTransfer,
-      cryptoStatusMessage,
-      activeChatTarget, setActiveChatTarget: handleSetActiveChatTarget,
-      unreadCounts,
-      setPendingTargetUser,
-      findUser,
-      chatRequests,
-      startDirectChat,
-      acceptDirectChat,
-      closeDirectChat
-    }}>
+    <ChatContext.Provider value={value}>
       {children}
     </ChatContext.Provider>
   );

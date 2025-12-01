@@ -34,13 +34,27 @@ const AppContent: React.FC = () => {
   );
 };
 
+import ServerStatus from './components/ServerStatus';
+
 const App: React.FC = () => {
   const [showLanding, setShowLanding] = React.useState(true);
+  const [showServerStatus, setShowServerStatus] = React.useState(false);
+
+  if (showServerStatus) {
+    return (
+      <ChatProvider>
+        <ServerStatus onBack={() => setShowServerStatus(false)} />
+      </ChatProvider>
+    );
+  }
 
   if (showLanding) {
     return (
       <>
-        <LandingPage onStart={() => setShowLanding(false)} />
+        <LandingPage
+          onStart={() => setShowLanding(false)}
+          onShowStats={() => setShowServerStatus(true)}
+        />
         <CookieConsent />
       </>
     );

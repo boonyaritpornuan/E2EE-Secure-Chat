@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 
 interface LandingPageProps {
     onStart: () => void;
+    onShowStats: () => void;
 }
 
-const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
+const LandingPage: React.FC<LandingPageProps> = ({ onStart, onShowStats }) => {
     const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
     useEffect(() => {
@@ -111,7 +112,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
 
             {/* Footer */}
             <footer className="py-8 text-center text-gray-600 text-sm">
-                &copy; {new Date().getFullYear()} SecureChat. Built for privacy.
+                <p>&copy; {new Date().getFullYear()} SecureChat. Built for privacy.</p>
+                <button
+                    onClick={onShowStats}
+                    className="mt-2 text-xs text-gray-700 hover:text-gray-500 transition-colors"
+                >
+                    Server Status
+                </button>
             </footer>
         </div>
     );

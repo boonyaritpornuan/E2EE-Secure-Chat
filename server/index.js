@@ -4,26 +4,151 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+
+// Security: Restrict CORS to allowed domains
+const ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+app.use(cors({
+    origin: ALLOWED_ORIGINS,
+    methods: ["GET", "POST"]
+}));
 
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "*", // Allow all origins for now, strictly for dev
+        origin: ALLOWED_ORIGINS,
         methods: ["GET", "POST"]
-    }
+    },
+    // Heartbeat configuration for stability
+    pingTimeout: 60000, // 60 seconds
+    pingInterval: 25000 // 25 seconds
 });
 
+// --- State Management ---
 // Store room state: roomId -> Set<UserObject>
-// UserObject: { socketId, username, publicKey }
 const rooms = new Map();
 const socketToRoom = new Map();
 const allUsers = new Map(); // username -> { socketId, publicKey, username }
 
+// --- Server Stats ---
+const stats = {
+    totalVisits: 0,
+    activeUsers: 0,
+    startTime: Date.now()
+};
+
+// --- Rate Limiting (Simple Token Bucket per Socket) ---
+const RATE_LIMIT_WINDOW = 1000; // 1 second
+const MAX_REQUESTS_PER_WINDOW = 10; // 10 events per second
+const socketRateLimits = new Map(); // socketId -> { count, lastReset }
+const ipConnectionCounts = new Map(); // ip -> count
+
+const checkRateLimit = (socketId) => {
+    const now = Date.now();
+    let limitData = socketRateLimits.get(socketId);
+
+    if (!limitData) {
+        limitData = { count: 0, lastReset: now };
+        socketRateLimits.set(socketId, limitData);
+    }
+
+    if (now - limitData.lastReset > RATE_LIMIT_WINDOW) {
+        limitData.count = 0;
+        limitData.lastReset = now;
+    }
+
+    limitData.count++;
+    return limitData.count <= MAX_REQUESTS_PER_WINDOW;
+};
+
+// --- Input Validation Helpers ---
+const isValidUsername = (username) => {
+    return typeof username === 'string' &&
+        username.length >= 3 &&
+        username.length <= 20 &&
+        /^[a-zA-Z0-9_#\-\s]+$/.test(username);
+};
+
+const isValidRoomId = (roomId) => {
+    return typeof roomId === 'string' &&
+        roomId.length >= 1 &&
+        roomId.length <= 50;
+};
+
 io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+    // console.log('User connected:', socket.id); // Privacy: Reduced logging
+
+    // --- Anti-Spam & DoS Protection ---
+    const MAX_GLOBAL_CONNECTIONS = 100; // Max users server-wide
+    const MAX_CONNECTIONS_PER_IP = 5;   // Max tabs/clients per IP
+
+    // 1. Global Limit Check
+    if (io.engine.clientsCount > MAX_GLOBAL_CONNECTIONS) {
+        socket.emit('error', 'Server is full. Please try again later.');
+        socket.disconnect(true);
+        return;
+    }
+
+    // 2. IP Rate Limiting
+    const clientIp = socket.handshake.address;
+    const currentConnections = ipConnectionCounts.get(clientIp) || 0;
+
+    if (currentConnections >= MAX_CONNECTIONS_PER_IP) {
+        socket.emit('error', 'Too many connections from your IP.');
+        socket.disconnect(true);
+        return;
+    }
+
+    // Track connection
+    ipConnectionCounts.set(clientIp, currentConnections + 1);
+
+    stats.totalVisits++;
+    stats.activeUsers++;
+
+    // Rate Limit Middleware for this socket
+    socket.use(([event, ...args], next) => {
+        if (!checkRateLimit(socket.id)) {
+            // console.warn(`Rate limit exceeded for ${socket.id}`);
+            return; // Drop event
+        }
+        next();
+    });
+
+    socket.on('register-user', ({ username, publicKey }) => {
+        if (!isValidUsername(username)) {
+            socket.emit('error', 'Invalid username format.');
+            return;
+        }
+
+        // Username Uniqueness Check
+        if (allUsers.has(username)) {
+            const existingUser = allUsers.get(username);
+            // Allow reconnect if same socket (shouldn't happen often with new connection) 
+            // or if we implement a token-based reconnect later. 
+            // For now, strict uniqueness:
+            if (existingUser.socketId !== socket.id) {
+                socket.emit('error', 'Username already taken.');
+                socket.disconnect(true); // Force disconnect
+                return;
+            }
+        }
+
+        const user = { socketId: socket.id, username, publicKey };
+        allUsers.set(username, user);
+        // console.log(`User registered: ${username}`); // Privacy: Reduced logging
+    });
 
     socket.on('join-room', ({ roomId, username, publicKey }) => {
+        if (!isValidRoomId(roomId) || !isValidUsername(username)) {
+            return;
+        }
+
+        // Double check uniqueness enforcement
+        if (allUsers.has(username) && allUsers.get(username).socketId !== socket.id) {
+            socket.emit('error', 'Username taken.');
+            socket.disconnect();
+            return;
+        }
+
         socket.join(roomId);
         socketToRoom.set(socket.id, roomId);
 
@@ -35,9 +160,7 @@ io.on('connection', (socket) => {
         // Add user to room state
         const user = { socketId: socket.id, username, publicKey };
         roomUsers.set(socket.id, user);
-
-        // Update global user list (Last write wins for same username)
-        allUsers.set(username, user);
+        allUsers.set(username, user); // Ensure global registry is updated
 
         // Notify others in the room
         socket.to(roomId).emit('user-joined', user);
@@ -45,9 +168,6 @@ io.on('connection', (socket) => {
         // Send list of existing users to the new user
         const usersList = Array.from(roomUsers.values()).filter(u => u.socketId !== socket.id);
         socket.emit('room-users', usersList);
-
-        console.log(`User ${username} (${socket.id}) joined room ${roomId}`);
-        console.log(`User ${username} (${socket.id}) joined room ${roomId}`);
     });
 
     socket.on('leave-room', () => {
@@ -62,23 +182,16 @@ io.on('connection', (socket) => {
                     setTimeout(() => {
                         if (rooms.has(roomId) && rooms.get(roomId).size === 0) {
                             rooms.delete(roomId);
-                            console.log(`Room ${roomId} deleted (empty after grace period)`);
                         }
                     }, 10000);
                 }
             }
             socketToRoom.delete(socket.id);
-            console.log(`User ${socket.id} left room ${roomId}`);
         }
     });
 
-    socket.on('register-user', ({ username, publicKey }) => {
-        const user = { socketId: socket.id, username, publicKey };
-        allUsers.set(username, user);
-        console.log(`User registered globally: ${username}`);
-    });
-
     socket.on('find-user', (username, callback) => {
+        if (typeof callback !== 'function') return;
         const user = allUsers.get(username);
         if (user) {
             callback({ found: true, user });
@@ -87,18 +200,10 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('signal', ({ targetSocketId, signal }) => {
-        io.to(targetSocketId).emit('signal', {
-            senderSocketId: socket.id,
-            signal
-        });
-    });
-
     // Direct Encrypted Message Relay
     socket.on('send-message', ({ targetSocketId, targetUsername, payload, senderUsername }) => {
         let finalTargetId = targetSocketId;
 
-        // If targetUsername is provided, look up the latest socket ID
         if (targetUsername) {
             const user = allUsers.get(targetUsername);
             if (user) {
@@ -109,28 +214,22 @@ io.on('connection', (socket) => {
         if (finalTargetId) {
             io.to(finalTargetId).emit('encrypted-message', {
                 senderSocketId: socket.id,
-                senderUsername, // Relay username
+                senderUsername,
                 payload
             });
-        } else {
-            console.warn(`Target not found: ${targetUsername || targetSocketId}`);
         }
     });
 
-    // Unified File Offer Handler (Supports both Legacy and New Chunk-based)
+    // Unified File Offer Handler
     socket.on('file-offer', ({ targetSocketId, metadata, fileMetadata }) => {
-        // Support both property names
         const finalMetadata = metadata || fileMetadata;
-
         if (finalMetadata) {
+            // Privacy: Do not log filename or metadata
             io.to(targetSocketId).emit('file-offer', {
                 senderSocketId: socket.id,
-                metadata: finalMetadata, // Standardize on 'metadata' for receiver, or keep original structure if needed
-                fileMetadata: finalMetadata // Send both to be safe for all client versions
+                metadata: finalMetadata,
+                fileMetadata: finalMetadata
             });
-            console.log(`File offer sent: ${finalMetadata.fileName || finalMetadata.name} from ${socket.id} to ${targetSocketId}`);
-        } else {
-            console.warn(`Received file-offer with no metadata from ${socket.id}`);
         }
     });
 
@@ -141,7 +240,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Direct Chat Request Signal
     socket.on('direct-chat-request', ({ targetUsername, senderUsername }) => {
         const targetUser = allUsers.get(targetUsername);
         if (targetUser) {
@@ -153,20 +251,19 @@ io.on('connection', (socket) => {
     });
 
     socket.on('file-accept', ({ targetSocketId, transferId }) => {
-        io.to(targetSocketId).emit('file-accept', {
-            transferId
-        });
-        console.log(`File accepted: ${transferId}`);
+        io.to(targetSocketId).emit('file-accept', { transferId });
     });
 
     socket.on('file-decline', ({ targetSocketId, transferId }) => {
-        io.to(targetSocketId).emit('file-decline', {
-            transferId
-        });
-        console.log(`File declined: ${transferId}`);
+        io.to(targetSocketId).emit('file-decline', { transferId });
     });
 
     socket.on('file-chunk', ({ targetSocketId, transferId, chunkId, data }) => {
+        // Basic DoS check: Chunk size limit (e.g., 65KB)
+        if (data && data.byteLength > 66000) {
+            // Drop oversized chunks silently or disconnect
+            return;
+        }
         io.to(targetSocketId).emit('file-chunk', {
             transferId,
             chunkId,
@@ -175,41 +272,59 @@ io.on('connection', (socket) => {
     });
 
     socket.on('file-complete', ({ targetSocketId, transferId }) => {
-        io.to(targetSocketId).emit('file-complete', {
-            transferId
-        });
-        console.log(`File transfer completed: ${transferId}`);
+        io.to(targetSocketId).emit('file-complete', { transferId });
     });
 
     socket.on('file-cancel', ({ targetSocketId, transferId }) => {
-        io.to(targetSocketId).emit('file-cancel', {
-            transferId
-        });
-        console.log(`File transfer cancelled: ${transferId}`);
+        io.to(targetSocketId).emit('file-cancel', { transferId });
     });
 
     socket.on('end-direct-chat', ({ targetSocketId }) => {
         io.to(targetSocketId).emit('end-direct-chat', {
             senderSocketId: socket.id,
-            senderUsername: 'User' // Could be enhanced to include actual username
+            senderUsername: 'User'
         });
     });
 
+    // Typing Indicators
+    socket.on('typing', ({ targetSocketId, targetRoomId }) => {
+        if (targetSocketId) {
+            io.to(targetSocketId).emit('typing', { senderSocketId: socket.id });
+        } else if (targetRoomId) {
+            socket.to(targetRoomId).emit('typing', { senderSocketId: socket.id });
+        }
+    });
+
+    socket.on('stop-typing', ({ targetSocketId, targetRoomId }) => {
+        if (targetSocketId) {
+            io.to(targetSocketId).emit('stop-typing', { senderSocketId: socket.id });
+        } else if (targetRoomId) {
+            socket.to(targetRoomId).emit('stop-typing', { senderSocketId: socket.id });
+        }
+    });
+
+    // Admin Stats Endpoint (Optional, for debugging)
+    socket.on('get-stats', (callback) => {
+        if (typeof callback === 'function') {
+            callback(stats);
+        }
+    });
+
     socket.on('disconnect', () => {
+        stats.activeUsers = Math.max(0, stats.activeUsers - 1);
+        socketRateLimits.delete(socket.id);
+
         const roomId = socketToRoom.get(socket.id);
         if (roomId) {
             const roomUsers = rooms.get(roomId);
             if (roomUsers) {
-                const user = roomUsers.get(socket.id);
                 roomUsers.delete(socket.id);
                 socket.to(roomId).emit('user-left', socket.id);
 
                 if (roomUsers.size === 0) {
-                    // Grace period: Wait 10 seconds before deleting the room
                     setTimeout(() => {
                         if (rooms.has(roomId) && rooms.get(roomId).size === 0) {
                             rooms.delete(roomId);
-                            console.log(`Room ${roomId} deleted (empty after grace period)`);
                         }
                     }, 10000);
                 }
@@ -217,20 +332,27 @@ io.on('connection', (socket) => {
             socketToRoom.delete(socket.id);
         }
 
-        // Global cleanup (independent of room)
+        // Global cleanup
         for (const [username, user] of allUsers.entries()) {
             if (user.socketId === socket.id) {
                 allUsers.delete(username);
-                console.log(`Removed ${username} from global registry`);
                 break;
             }
         }
 
-        console.log('User disconnected:', socket.id);
+        // Release IP slot
+        const currentCount = ipConnectionCounts.get(clientIp) || 0;
+        if (currentCount > 0) {
+            ipConnectionCounts.set(clientIp, currentCount - 1);
+        }
+        if (ipConnectionCounts.get(clientIp) === 0) {
+            ipConnectionCounts.delete(clientIp);
+        }
     });
 });
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
     console.log(`Signaling server running on port ${PORT}`);
+    console.log(`Allowed Origins: ${ALLOWED_ORIGINS.join(', ')}`);
 });

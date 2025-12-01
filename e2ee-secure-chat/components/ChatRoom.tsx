@@ -2,13 +2,31 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useChat } from '../contexts/ChatContext';
 import { DecryptedMessage, SystemMessageType } from '../types';
 
+const SafetyNumberDisplay: React.FC<{ targetSocketId: string }> = ({ targetSocketId }) => {
+  const { getSafetyNumber } = useChat();
+  const [safetyNumber, setSafetyNumber] = useState<string | null>(null);
+
+  useEffect(() => {
+    getSafetyNumber(targetSocketId).then(setSafetyNumber);
+  }, [targetSocketId, getSafetyNumber]);
+
+  if (!safetyNumber) return null;
+
+  return (
+    <span className="text-gray-500 font-mono mt-1 flex items-center" title="Verify this number with your contact to ensure security">
+      <span className="mr-1">🔒</span> Safety Number: {safetyNumber}
+    </span>
+  );
+};
+
 const ChatRoom: React.FC = () => {
   const {
     roomId, messages, sendMessage,
     cryptoStatusMessage,
     activeUsers,
     activeTransfers, startFileTransfer, acceptFileTransfer, declineFileTransfer, cancelTransfer,
-    activeChatTarget
+    activeChatTarget,
+    typingUsers, sendTyping
   } = useChat();
 
   const [inputText, setInputText] = useState('');
@@ -113,15 +131,20 @@ const ChatRoom: React.FC = () => {
               </>
             )}
           </h2>
-          <p className="text-xs text-gray-400">
-            {activeChatTarget === 'ROOM'
-              ? `${activeUsers.length} members online`
-              : 'End-to-End Encrypted Direct Message'}
-          </p>
+          <div className="text-xs text-gray-400">
+            {activeChatTarget === 'ROOM' ? (
+              `${activeUsers.length} members online`
+            ) : (
+              <div className="flex flex-col">
+                <span>End-to-End Encrypted Direct Message</span>
+                <SafetyNumberDisplay targetSocketId={activeChatTarget} />
+              </div>
+            )}
+          </div>
         </div>
         {activeChatTarget !== 'ROOM' && (
           <button
-            onClick={() => useChat().closeDirectChat(activeChatTarget)} // Access via hook directly if needed or destructure
+            onClick={() => useChat().closeDirectChat(activeChatTarget)}
             className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors"
           >
             Close Chat
@@ -137,7 +160,7 @@ const ChatRoom: React.FC = () => {
               <div className="flex justify-between items-center">
                 <div className="flex items-center space-x-2">
                   <span className="text-xl">
-                    {transfer.status === 'pending' ? '📎' : transfer.isUpload ? '⬆️' : '⬇️'}
+                    {transfer.fileName.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? '🖼️' : (transfer.status === 'pending' ? '📎' : transfer.isUpload ? '⬆️' : '⬇️')}
                   </span>
                   <div>
                     <p className="text-sm font-bold text-white">{transfer.fileName}</p>
@@ -186,7 +209,7 @@ const ChatRoom: React.FC = () => {
                 <>
                   <div className="w-full bg-gray-700 rounded-full h-2.5">
                     <div
-                      className={`h-2.5 rounded-full ${transfer.status === 'completed' ? 'bg-green-500' : 'bg-blue-600'}`}
+                      className="h-2.5 rounded-full bg-blue-600"
                       style={{ width: `${transfer.progress}%` }}
                     ></div>
                   </div>
@@ -239,6 +262,15 @@ const ChatRoom: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Typing Indicator */}
+      {typingUsers.length > 0 && (
+        <div className="px-4 py-1 bg-gray-900 text-xs text-gray-400 italic animate-pulse">
+          {activeChatTarget === 'ROOM'
+            ? 'Someone is typing...'
+            : 'User is typing...'}
+        </div>
+      )}
+
       {/* Input Area */}
       <div className="p-4 bg-gray-900 border-t border-gray-700">
         <form onSubmit={handleSendMessage} className="flex items-center space-x-3">
@@ -262,7 +294,28 @@ const ChatRoom: React.FC = () => {
           <input
             type="text"
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={(e) => {
+              setInputText(e.target.value);
+              sendTyping(true);
+            }}
+            onBlur={() => sendTyping(false)}
+            onPaste={async (e) => {
+              const items = e.clipboardData.items;
+              for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                  const file = items[i].getAsFile();
+                  if (file) {
+                    if (activeChatTarget === 'ROOM') {
+                      for (const user of activeUsers) {
+                        await startFileTransfer(file, user.socketId);
+                      }
+                    } else {
+                      await startFileTransfer(file, activeChatTarget);
+                    }
+                  }
+                }
+              }
+            }}
             placeholder={activeChatTarget === 'ROOM' ? "Message #General..." : `Message ${targetUser?.username || 'User'}...`}
             className="flex-grow px-4 py-2 bg-gray-800 border border-gray-600 rounded-full text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
           />
