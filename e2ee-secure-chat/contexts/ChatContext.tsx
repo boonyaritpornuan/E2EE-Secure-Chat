@@ -11,7 +11,7 @@ import {
 } from '../utils/encryptionService';
 import { generateRandomIdentity, getStoredIdentity, storeIdentity, UserIdentity } from '../utils/userManager';
 
-const SIGNALING_SERVER_URL = import.meta.env.VITE_SIGNALING_SERVER_URL || 'http://localhost:3001';
+const SIGNALING_SERVER_URL = import.meta.env.VITE_SIGNALING_SERVER_URL || 'https://e2ee-secure-chat-njzy.onrender.com';
 
 import { FileTransferManager, FileTransferState } from '../utils/FileTransferManager';
 import { getKey, storeKey } from '../utils/keyStorage';
