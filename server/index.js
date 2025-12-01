@@ -26,6 +26,10 @@ const io = new Server(server, {
     pingInterval: 25000 // 25 seconds
 });
 
+// --- Version Control ---
+const MIN_SUPPORTED_VERSION = '1.0.0'; // Oldest allowed version (Force Update)
+const LATEST_VERSION = '1.0.1';        // Current latest version (Soft Update)
+
 // --- State Management ---
 // Store room state: roomId -> Set<UserObject>
 const rooms = new Map();
@@ -79,6 +83,35 @@ const isValidRoomId = (roomId) => {
 
 io.on('connection', (socket) => {
     // console.log('User connected:', socket.id); // Privacy: Reduced logging
+
+    // --- Version Check ---
+    const clientVersion = socket.handshake.query.version;
+
+    // Helper to compare versions: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
+    const compareVersions = (v1, v2) => {
+        if (!v1 || !v2) return 0;
+        const p1 = v1.split('.').map(Number);
+        const p2 = v2.split('.').map(Number);
+        for (let i = 0; i < 3; i++) {
+            const n1 = p1[i] || 0;
+            const n2 = p2[i] || 0;
+            if (n1 > n2) return 1;
+            if (n1 < n2) return -1;
+        }
+        return 0;
+    };
+
+    // 1. Force Update Check
+    if (compareVersions(clientVersion, MIN_SUPPORTED_VERSION) < 0) {
+        socket.emit('force-update', { minVersion: MIN_SUPPORTED_VERSION });
+        socket.disconnect(true);
+        return;
+    }
+
+    // 2. Soft Update Check
+    if (compareVersions(clientVersion, LATEST_VERSION) < 0) {
+        socket.emit('soft-update', { latestVersion: LATEST_VERSION });
+    }
 
     // --- Anti-Spam & DoS Protection ---
     const MAX_GLOBAL_CONNECTIONS = 100; // Max users server-wide

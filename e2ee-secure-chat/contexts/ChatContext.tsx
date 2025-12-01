@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { APP_VERSION } from '../constants';
 import { KeyPair, DecryptedMessage, MessageType, EncryptedTextMessage, UserProfile, SystemMessageType } from '../types';
 import {
   generateAppKeyPair,
@@ -55,6 +56,8 @@ interface ChatContextType {
   fetchServerStats: () => Promise<any>;
   typingUsers: string[];
   sendTyping: (isTyping: boolean) => void;
+  updateRequired: boolean;
+  updateAvailable: boolean;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -1055,6 +1058,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [updateRequired, setUpdateRequired] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
 
   const sendTyping = (isTyping: boolean) => {
     if (!socketRef.current) return;
@@ -1078,6 +1083,41 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   useEffect(() => {
+    // Initialize Socket
+    socketRef.current = io(SIGNALING_SERVER_URL, {
+      transports: ['websocket'],
+      query: { version: APP_VERSION } // Send version
+    });
+
+    socketRef.current.on('connect', () => {
+      console.log('Connected to signaling server');
+      // Re-register if we have an identity
+      if (userIdentity && ownKeyPair) {
+        // We need to re-export key because we don't store the JWK in state, only the KeyPair object
+        exportPublicKeyJwk(ownKeyPair.publicKey).then(jwk => {
+          socketRef.current?.emit('register-user', {
+            username: userIdentity.username,
+            publicKey: jwk
+          });
+        });
+      }
+    });
+
+    socketRef.current.on('force-update', ({ minVersion }) => {
+      setUpdateRequired(true);
+      socketRef.current?.disconnect();
+    });
+
+    socketRef.current.on('soft-update', ({ latestVersion }) => {
+      setUpdateAvailable(true);
+      addSystemMessage(`New version ${latestVersion} is available!`, SystemMessageType.GENERAL);
+    });
+
+    socketRef.current.on('error', (msg: string) => {
+      console.error("Socket Error:", msg);
+      addSystemMessage(`Error: ${msg}`, SystemMessageType.ERROR);
+    });
+
     if (!socketRef.current) return;
 
     socketRef.current.on('typing', ({ senderSocketId }) => {
@@ -1132,7 +1172,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     getSafetyNumber,
     fetchServerStats,
     typingUsers,
-    sendTyping
+    sendTyping,
+    updateRequired,
+    updateAvailable
   };
 
   return (

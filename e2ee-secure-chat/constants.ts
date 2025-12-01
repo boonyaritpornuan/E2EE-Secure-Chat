@@ -9,3 +9,5 @@ export const MESSAGE_EXPIRY_TIMER_OPTIONS = [
   { value: 86400000, label: "1 Day" },   // 24 * 60 * 60 * 1000
 ];
 export const DEFAULT_MESSAGE_EXPIRY_MS = 0; // Never delete by default
+export const APP_VERSION = "1.0.0";
+
