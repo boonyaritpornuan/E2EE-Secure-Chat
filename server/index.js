@@ -6,16 +6,19 @@ const cors = require('cors');
 const app = express();
 
 // Security: Restrict CORS to allowed domains
-const ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+// For mobile/desktop apps (Capacitor/Electron), origin might be 'file://' or 'http://localhost'
+// In production, you might want to restrict this, but for a public app, allowing all or specific schemes is needed.
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ["*"];
+
 app.use(cors({
-    origin: ALLOWED_ORIGINS,
+    origin: ALLOWED_ORIGINS.includes("*") ? "*" : ALLOWED_ORIGINS,
     methods: ["GET", "POST"]
 }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: ALLOWED_ORIGINS,
+        origin: ALLOWED_ORIGINS.includes("*") ? "*" : ALLOWED_ORIGINS,
         methods: ["GET", "POST"]
     },
     // Heartbeat configuration for stability
