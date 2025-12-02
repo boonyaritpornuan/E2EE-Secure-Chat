@@ -142,6 +142,11 @@ io.on('connection', (socket) => {
 
     // Rate Limit Middleware for this socket
     socket.use(([event, ...args], next) => {
+        // Exempt high-frequency events like file chunks
+        if (event === 'file-chunk') {
+            return next();
+        }
+
         if (!checkRateLimit(socket.id)) {
             // console.warn(`Rate limit exceeded for ${socket.id}`);
             return; // Drop event

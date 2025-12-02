@@ -110,8 +110,7 @@ const ChatRoom: React.FC = () => {
 
   // Filter transfers relevant to current view
   const currentTransfers = Object.values(activeTransfers).filter(t =>
-    (activeChatTarget !== 'ROOM' && t.peerSocketId === activeChatTarget) ||
-    (activeChatTarget === 'ROOM' && false) // Hide transfers in room view for now
+    activeChatTarget === 'ROOM' || t.peerSocketId === activeChatTarget
   );
 
   return (
