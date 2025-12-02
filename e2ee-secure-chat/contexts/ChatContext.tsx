@@ -1045,6 +1045,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           socketRef.current?.emit('send-message', {
             targetSocketId: user.socketId,
+            targetUsername: user.username, // Critical Fix: Allow server to route to latest socket for this username
             payload,
             senderUsername: userIdentity?.username
           });
