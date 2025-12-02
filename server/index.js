@@ -229,6 +229,15 @@ io.on('connection', (socket) => {
         socket.emit('room-users', usersList);
     });
 
+    socket.on('get-room-users', () => {
+        const roomId = socketToRoom.get(socket.id);
+        if (roomId && rooms.has(roomId)) {
+            const roomUsers = rooms.get(roomId);
+            const usersList = Array.from(roomUsers.values()).filter(u => u.socketId !== socket.id);
+            socket.emit('room-users', usersList);
+        }
+    });
+
     socket.on('leave-room', () => {
         const roomId = socketToRoom.get(socket.id);
         if (roomId) {

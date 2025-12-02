@@ -58,6 +58,7 @@ interface ChatContextType {
   sendTyping: (isTyping: boolean) => void;
   updateRequired: boolean;
   updateAvailable: boolean;
+  refreshActiveUsers: () => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -153,6 +154,20 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     initIdentityAndKeys();
   }, []);
+
+  const refreshActiveUsers = useCallback(() => {
+    if (socketRef.current && roomId && roomId !== 'Direct Chat') {
+      socketRef.current.emit('get-room-users');
+    }
+  }, [roomId]);
+
+  // Periodic Refresh (Pulse)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshActiveUsers();
+    }, 10000); // Check every 10 seconds
+    return () => clearInterval(interval);
+  }, [refreshActiveUsers]);
 
   const handleSetActiveChatTarget = (target: string | 'ROOM', username?: string) => {
     setActiveChatTarget(target);
@@ -279,6 +294,13 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } else {
         // Direct Transfer
+        // Validate target is still online
+        const targetUser = activeUsers.find(u => u.socketId === targetSocketId);
+        if (!targetUser) {
+          addSystemMessage(`Cannot send file. User is offline.`, SystemMessageType.ERROR);
+          return;
+        }
+
         await initiateTransfer(targetSocketId);
         addSystemMessage(`Sent file offer: ${file.name} to user.`, SystemMessageType.GENERAL, { isDirect: true, peerId: targetSocketId });
       }
@@ -1206,7 +1228,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     typingUsers,
     sendTyping,
     updateRequired,
-    updateAvailable
+    updateAvailable,
+    refreshActiveUsers
   };
 
   return (
