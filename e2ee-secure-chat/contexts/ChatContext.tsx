@@ -44,7 +44,7 @@ interface ChatContextType {
 
   cryptoStatusMessage: string | null;
   activeChatTarget: string | 'ROOM';
-  setActiveChatTarget: (target: string | 'ROOM') => void;
+  setActiveChatTarget: (target: string | 'ROOM', username?: string) => void;
   unreadCounts: Record<string, number>;
   setPendingTargetUser: (username: string | null) => void;
   findUser: (username: string) => Promise<UserProfile | null>;
@@ -70,6 +70,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [messages, setMessages] = useState<DecryptedMessage[]>([]);
   const [cryptoStatusMessage, setCryptoStatusMessage] = useState<string | null>("Initializing...");
   const [activeChatTarget, setActiveChatTarget] = useState<string | 'ROOM'>('ROOM');
+  const [activeChatUsername, setActiveChatUsername] = useState<string | null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [pendingTargetUser, setPendingTargetUser] = useState<string | null>(null);
   const [chatRequests, setChatRequests] = useState<Array<{ senderSocketId: string, senderUsername: string }>>([]);
@@ -83,6 +84,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const ownKeyPairRef = useRef<KeyPair | null>(null);
   const activeUsersRef = useRef<UserProfile[]>([]);
   const activeChatTargetRef = useRef<string | 'ROOM'>('ROOM');
+  const activeChatUsernameRef = useRef<string | null>(null);
   const pendingTargetUserRef = useRef<string | null>(null);
   const activeTransfersRef = useRef<Record<string, FileTransferState>>({});
 
@@ -92,6 +94,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => { ownKeyPairRef.current = ownKeyPair; }, [ownKeyPair]);
   useEffect(() => { activeUsersRef.current = activeUsers; }, [activeUsers]);
   useEffect(() => { activeChatTargetRef.current = activeChatTarget; }, [activeChatTarget]);
+  useEffect(() => { activeChatUsernameRef.current = activeChatUsername; }, [activeChatUsername]);
   useEffect(() => { pendingTargetUserRef.current = pendingTargetUser; }, [pendingTargetUser]);
   useEffect(() => { activeTransfersRef.current = activeTransfers; }, [activeTransfers]);
 
@@ -151,8 +154,21 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     initIdentityAndKeys();
   }, []);
 
-  const handleSetActiveChatTarget = (target: string | 'ROOM') => {
+  const handleSetActiveChatTarget = (target: string | 'ROOM', username?: string) => {
     setActiveChatTarget(target);
+
+    if (target === 'ROOM') {
+      setActiveChatUsername(null);
+    } else {
+      if (username) {
+        setActiveChatUsername(username);
+      } else {
+        // Try to find username from activeUsers if not provided
+        const user = activeUsersRef.current.find(u => u.socketId === target);
+        if (user) setActiveChatUsername(user.username);
+      }
+    }
+
     // Clear unread count for this target
     setUnreadCounts(prev => {
       const newCounts = { ...prev };
@@ -624,7 +640,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (pending) {
         const targetInRoom = users.find(u => u.username === pending);
         if (targetInRoom) {
-          handleSetActiveChatTarget(targetInRoom.socketId);
+          handleSetActiveChatTarget(targetInRoom.socketId, targetInRoom.username);
           setPendingTargetUser(null);
           socket.emit('direct-chat-request', { targetUsername: targetInRoom.username, senderUsername: userIdentity?.username });
           addSystemMessage(`Found user ${targetInRoom.username} in room.`, SystemMessageType.GENERAL);
@@ -645,7 +661,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   sharedSecretsRef.current.set(user.socketId, secret);
                 } catch (e) { console.error("Key derivation error:", e); }
               }
-              handleSetActiveChatTarget(user.socketId);
+              handleSetActiveChatTarget(user.socketId, user.username);
               setPendingTargetUser(null);
               socket.emit('direct-chat-request', { targetUsername: user.username, senderUsername: userIdentity?.username });
               addSystemMessage(`Found user ${user.username} globally. Starting chat.`, SystemMessageType.GENERAL);
@@ -681,9 +697,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const pending = pendingTargetUserRef.current;
       if (pending && user.username === pending) {
-        handleSetActiveChatTarget(user.socketId);
+        handleSetActiveChatTarget(user.socketId, user.username);
         setPendingTargetUser(null);
         addSystemMessage(`User ${user.username} just joined! Starting chat.`, SystemMessageType.GENERAL);
+      }
+
+      // Auto-update active chat target if the user reconnects (same username, new socketId)
+      const currentChatUsername = activeChatUsernameRef.current;
+      if (currentChatUsername && user.username === currentChatUsername && activeChatTargetRef.current !== 'ROOM') {
+        console.log(`Active chat user ${user.username} reconnected. Updating target to ${user.socketId}`);
+        handleSetActiveChatTarget(user.socketId, user.username);
+        addSystemMessage(`${user.username} reconnected. Session updated.`, SystemMessageType.CONNECTION_STATUS);
       }
 
       const currentKeyPair = ownKeyPairRef.current;
@@ -859,7 +883,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setRoomId('Direct Chat');
       }
 
-      handleSetActiveChatTarget(user.socketId);
+      handleSetActiveChatTarget(user.socketId, user.username);
 
       // Notify target
       socketRef.current.emit('direct-chat-request', { targetUsername: user.username, senderUsername: userIdentity.username });
@@ -934,7 +958,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setRoomId('Direct Chat');
       }
 
-      handleSetActiveChatTarget(user.socketId);
+      handleSetActiveChatTarget(user.socketId, user.username);
       addSystemMessage(`Accepted chat with ${user.username}.`, SystemMessageType.GENERAL);
     } else {
       // Fallback if findUser fails (maybe they disconnected?)
