@@ -96,7 +96,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => { activeTransfersRef.current = activeTransfers; }, [activeTransfers]);
 
   // Define addSystemMessage FIRST to avoid hoisting issues
-  const addSystemMessage = useCallback((text: string, systemType: SystemMessageType = SystemMessageType.GENERAL) => {
+  const addSystemMessage = useCallback((text: string, systemType: SystemMessageType = SystemMessageType.GENERAL, options?: { isDirect?: boolean, peerId?: string }) => {
     setMessages((prev: DecryptedMessage[]) => [...prev, {
       id: `sys-${Date.now()}-${Math.random()}`,
       timestamp: Date.now(),
@@ -104,6 +104,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isSystem: true,
       senderIsSelf: false,
       systemType,
+      isDirect: options?.isDirect,
+      senderSocketId: options?.peerId,
+      targetSocketId: options?.peerId
     }]);
   }, []);
 
@@ -261,7 +264,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } else {
         // Direct Transfer
         await initiateTransfer(targetSocketId);
-        addSystemMessage(`Sent file offer: ${file.name} to user.`, SystemMessageType.GENERAL);
+        addSystemMessage(`Sent file offer: ${file.name} to user.`, SystemMessageType.GENERAL, { isDirect: true, peerId: targetSocketId });
       }
     } finally {
       // Release lock after a short delay to prevent accidental double-clicks
@@ -283,7 +286,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Update status to transferring
     updateTransferState(transferId, { status: 'transferring' });
-    addSystemMessage(`Accepting file: ${transfer.fileName}`, SystemMessageType.GENERAL);
+    addSystemMessage(`Accepting file: ${transfer.fileName}`, SystemMessageType.GENERAL, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
   };
 
   const declineFileTransfer = (transferId: string) => {
@@ -301,7 +304,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     delete newTransfers[transferId];
     setActiveTransfers(newTransfers);
 
-    addSystemMessage(`Declined file: ${transfer.fileName}`, SystemMessageType.GENERAL);
+    addSystemMessage(`Declined file: ${transfer.fileName}`, SystemMessageType.GENERAL, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
   };
 
   const sendChunks = async (transferId: string, targetSocketId: string, chunks: ArrayBuffer[]) => {
@@ -340,7 +343,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const transfer = activeTransfersRef.current[transferId];
     if (transfer) {
       updateTransferState(transferId, { status: 'completed', progress: 100 });
-      addSystemMessage(`✅ File sent: ${transfer.fileName} (${(transfer.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS);
+      addSystemMessage(`✅ File sent: ${transfer.fileName} (${(transfer.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
 
       // Auto-remove after 2 seconds
       setTimeout(() => {
@@ -369,7 +372,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setActiveTransfers(newTransfers);
 
     const action = transfer.isUpload ? 'sending' : 'receiving';
-    addSystemMessage(`❌ Cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR);
+    addSystemMessage(`❌ Cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
   };
 
   // Sync Ref with State (Must be at top level)
@@ -455,14 +458,14 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       activeTransfersRef.current[data.transferId] = transferState;
 
       setActiveTransfers(prev => ({ ...prev, [data.transferId]: transferState }));
-      addSystemMessage(`📎 File offer: ${transferState.fileName} (${(transferState.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS);
+      addSystemMessage(`📎 File offer: ${transferState.fileName} (${(transferState.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS, { isDirect: transferState.isDirect, peerId: transferState.peerSocketId });
     });
 
     socket.on('file-accept', async ({ transferId }: { transferId: string }) => {
       const transfer = activeTransfersRef.current[transferId];
       if (!transfer || !transfer.isUpload) return;
 
-      addSystemMessage(`File accepted! Sending ${transfer.fileName}...`, SystemMessageType.GENERAL);
+      addSystemMessage(`File accepted! Sending ${transfer.fileName}...`, SystemMessageType.GENERAL, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
 
       const chunks = (window as any).pendingFileChunks?.get(transferId);
       if (chunks) {
@@ -479,7 +482,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     socket.on('file-decline', ({ transferId }: { transferId: string }) => {
-      addSystemMessage(`File transfer declined.`, SystemMessageType.ERROR);
+      // Need to find transfer to know context, but it might be deleted?
+      // Actually we don't have the transfer object here if we don't look it up before deleting?
+      // Wait, the listener doesn't have the transfer object.
+      // We need to look it up from activeTransfersRef
+      const transfer = activeTransfersRef.current[transferId];
+      if (transfer) {
+        addSystemMessage(`File transfer declined.`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+      } else {
+        addSystemMessage(`File transfer declined.`, SystemMessageType.ERROR);
+      }
       setActiveTransfers(prev => {
         const newTransfers = { ...prev };
         delete newTransfers[transferId];
@@ -555,13 +567,13 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             URL.revokeObjectURL(url);
           }, 1000); // 1 second is enough usually
 
-          addSystemMessage(`✅ File received: ${safeName}`, SystemMessageType.WEBRTC_STATUS);
+          addSystemMessage(`✅ File received: ${safeName}`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
         } catch (err) {
           console.error("Download failed:", err);
-          addSystemMessage(`Error saving file: ${err}`, SystemMessageType.ERROR);
+          addSystemMessage(`Error saving file: ${err}`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
         }
       } else {
-        addSystemMessage(`✅ File sent: ${transfer.fileName}`, SystemMessageType.WEBRTC_STATUS);
+        addSystemMessage(`✅ File sent: ${transfer.fileName}`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
       }
 
       // 3. Update React State (Visuals)
@@ -585,7 +597,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const transfer = prev[transferId];
         if (!transfer) return prev;
         const action = transfer.isUpload ? 'receiving' : 'sending';
-        addSystemMessage(`❌ Peer cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR);
+        addSystemMessage(`❌ Peer cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
         const newTransfers = { ...prev };
         delete newTransfers[transferId];
         return newTransfers;
