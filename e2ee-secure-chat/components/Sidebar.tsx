@@ -169,7 +169,7 @@ const Sidebar: React.FC = () => {
                     Room Members
                 </div>
 
-                {activeUsers.filter(u => u.username !== userIdentity?.username && u.isOnline && !(unreadCounts[u.socketId] > 0 || activeChatTarget === u.socketId)).map((user) => (
+                {activeUsers.filter(u => u.username !== userIdentity?.username && u.isOnline).map((user) => (
                     <div
                         key={user.socketId}
                         onClick={() => setActiveChatTarget(user.socketId)}

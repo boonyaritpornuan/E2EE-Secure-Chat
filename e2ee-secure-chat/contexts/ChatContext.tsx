@@ -276,7 +276,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Deduplicate peers based on socketId to prevent double sending
         const uniquePeersMap = new Map<string, UserProfile>();
         activeUsers.forEach(u => {
-          if (u.socketId !== socketRef.current?.id) {
+          if (u.socketId !== socketRef.current?.id && u.isOnline) {
             uniquePeersMap.set(u.socketId, u);
           }
         });
