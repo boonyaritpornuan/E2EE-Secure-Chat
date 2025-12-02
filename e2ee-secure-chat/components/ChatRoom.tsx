@@ -242,7 +242,7 @@ const ChatRoom: React.FC = () => {
 
             <div
               className={`max-w-[85%] md:max-w-[70%] px-4 py-2 rounded-2xl shadow-md ${msg.isSystem
-                ? 'bg-gray-700/50 text-gray-300 text-xs py-1 px-3 rounded-full'
+                ? (msg.text.includes('File offer') ? 'bg-blue-900/50 text-blue-200 border border-blue-700 py-2 px-4 rounded-xl' : 'bg-gray-700/50 text-gray-300 text-xs py-1 px-3 rounded-full')
                 : msg.senderIsSelf
                   ? 'bg-blue-600 text-white rounded-br-none'
                   : 'bg-gray-700 text-gray-100 rounded-bl-none'
@@ -262,13 +262,15 @@ const ChatRoom: React.FC = () => {
       </div>
 
       {/* Typing Indicator */}
-      {typingUsers.length > 0 && (
-        <div className="px-4 py-1 bg-gray-900 text-xs text-gray-400 italic animate-pulse">
-          {activeChatTarget === 'ROOM'
-            ? 'Someone is typing...'
-            : 'User is typing...'}
-        </div>
-      )}
+      {
+        typingUsers.length > 0 && (
+          <div className="px-4 py-1 bg-gray-900 text-xs text-gray-400 italic animate-pulse">
+            {activeChatTarget === 'ROOM'
+              ? 'Someone is typing...'
+              : 'User is typing...'}
+          </div>
+        )
+      }
 
       {/* Input Area */}
       <div className="p-4 bg-gray-900 border-t border-gray-700">
@@ -333,7 +335,7 @@ const ChatRoom: React.FC = () => {
           <span className="text-[10px] text-gray-500">{cryptoStatusMessage}</span>
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 
