@@ -1006,9 +1006,30 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
     } else {
+      // Group Chat: Iterate over all users in the room
+      if (activeUsers.length === 0) {
+        console.warn("No active users in room to send to.");
+      }
+
       activeUsers.forEach(async (user: UserProfile) => {
-        const secret = sharedSecretsRef.current.get(user.socketId);
-        if (!secret) return;
+        let secret = sharedSecretsRef.current.get(user.socketId);
+
+        // Self-Healing: If secret is missing, try to derive it now
+        if (!secret && user.publicKey && ownKeyPair) {
+          try {
+            console.log(`[Self-Heal] Deriving missing secret for ${user.username} (${user.socketId})`);
+            const peerKey = await importPublicKeyJwk(user.publicKey);
+            secret = await deriveSharedSecret(ownKeyPair.privateKey, peerKey);
+            sharedSecretsRef.current.set(user.socketId, secret);
+          } catch (err) {
+            console.error(`[Self-Heal] Failed to derive secret for ${user.username}:`, err);
+          }
+        }
+
+        if (!secret) {
+          console.error(`Cannot send message to ${user.username}: No shared secret available.`);
+          return;
+        }
 
         const encrypted = await encryptText(text, secret);
         if (encrypted) {
