@@ -13,6 +13,7 @@ export interface FileTransferState {
     data?: ArrayBuffer; // For receiver
     chunks?: Map<number, ArrayBuffer>; // For receiver
     startTime: number;
+    isDirect?: boolean;
 }
 
 export class FileTransferManager {

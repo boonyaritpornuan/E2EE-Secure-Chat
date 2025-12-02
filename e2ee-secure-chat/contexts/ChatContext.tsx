@@ -204,7 +204,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           status: 'pending',
           isUpload: true,
           peerSocketId: peerId,
-          startTime: Date.now()
+          startTime: Date.now(),
+          isDirect: targetSocketId !== 'ROOM'
         };
 
         // Store chunks
@@ -226,7 +227,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             fileName: file.name,
             fileSize: file.size,
             fileType: file.type,
-            totalChunks
+            totalChunks,
+            isDirect: targetSocketId !== 'ROOM'
           }
         });
       };
@@ -445,7 +447,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isUpload: false,
         peerSocketId: senderSocketId,
         chunks: new Map(),
-        startTime: Date.now()
+        startTime: Date.now(),
+        isDirect: data.isDirect
       };
 
       // Update Ref IMMEDIATELY to ensure fileName is available for completion handler

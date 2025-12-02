@@ -109,9 +109,15 @@ const ChatRoom: React.FC = () => {
   }
 
   // Filter transfers relevant to current view
-  const currentTransfers = Object.values(activeTransfers).filter(t =>
-    activeChatTarget === 'ROOM' || t.peerSocketId === activeChatTarget
-  );
+  const currentTransfers = Object.values(activeTransfers).filter(t => {
+    if (activeChatTarget === 'ROOM') {
+      // In Room view, ONLY show Group transfers (isDirect === false)
+      return t.isDirect === false;
+    } else {
+      // In DM view, ONLY show Direct transfers for this peer
+      return t.peerSocketId === activeChatTarget && t.isDirect === true;
+    }
+  });
 
   return (
     <div className="flex flex-col h-full bg-gray-800 relative">
