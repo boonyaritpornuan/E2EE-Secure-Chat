@@ -22,8 +22,8 @@ const io = new Server(server, {
         methods: ["GET", "POST"]
     },
     // Heartbeat configuration for stability
-    pingTimeout: 60000, // 60 seconds
-    pingInterval: 25000 // 25 seconds
+    pingTimeout: 10000, // 10 seconds (Reduced from 60s to detect ghost sessions faster)
+    pingInterval: 5000  // 5 seconds
 });
 
 // --- Version Control ---
@@ -158,17 +158,25 @@ io.on('connection', (socket) => {
         // Username Uniqueness Check
         if (allUsers.has(username)) {
             const existingUser = allUsers.get(username);
-            // Allow reconnect if same socket (shouldn't happen often with new connection) 
-            // or if we implement a token-based reconnect later. 
-            // For now, strict uniqueness:
+
             if (existingUser.socketId !== socket.id) {
-                socket.emit('error', 'Username already taken.');
-                socket.disconnect(true); // Force disconnect
-                return;
+                // Allow Reclaim if same IP (Fix for refresh/ghost sessions)
+                if (existingUser.ip === clientIp) {
+                    const oldSocket = io.sockets.sockets.get(existingUser.socketId);
+                    if (oldSocket) {
+                        oldSocket.emit('error', 'New connection detected. Disconnecting old session.');
+                        oldSocket.disconnect(true);
+                    }
+                    // Proceed to overwrite
+                } else {
+                    socket.emit('error', 'Username already taken.');
+                    socket.disconnect(true); // Force disconnect
+                    return;
+                }
             }
         }
 
-        const user = { socketId: socket.id, username, publicKey };
+        const user = { socketId: socket.id, username, publicKey, ip: clientIp };
         allUsers.set(username, user);
         // console.log(`User registered: ${username}`); // Privacy: Reduced logging
     });
@@ -180,9 +188,19 @@ io.on('connection', (socket) => {
 
         // Double check uniqueness enforcement
         if (allUsers.has(username) && allUsers.get(username).socketId !== socket.id) {
-            socket.emit('error', 'Username taken.');
-            socket.disconnect();
-            return;
+            const existingUser = allUsers.get(username);
+            // Allow Reclaim if same IP
+            if (existingUser.ip === clientIp) {
+                const oldSocket = io.sockets.sockets.get(existingUser.socketId);
+                if (oldSocket) {
+                    oldSocket.emit('error', 'New connection detected. Disconnecting old session.');
+                    oldSocket.disconnect(true);
+                }
+            } else {
+                socket.emit('error', 'Username taken.');
+                socket.disconnect();
+                return;
+            }
         }
 
         socket.join(roomId);
@@ -194,7 +212,7 @@ io.on('connection', (socket) => {
         const roomUsers = rooms.get(roomId);
 
         // Add user to room state
-        const user = { socketId: socket.id, username, publicKey };
+        const user = { socketId: socket.id, username, publicKey, ip: clientIp };
         roomUsers.set(socket.id, user);
         allUsers.set(username, user); // Ensure global registry is updated
 
