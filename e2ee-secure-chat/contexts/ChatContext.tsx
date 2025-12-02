@@ -387,7 +387,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const socket = io(SIGNALING_SERVER_URL, {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      autoConnect: true
+      autoConnect: true,
+      query: { version: APP_VERSION }
     });
     socketRef.current = socket;
 
@@ -751,8 +752,35 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     });
 
+    // --- Typing & Update Listeners ---
+    socket.on('force-update', ({ minVersion }) => {
+      setUpdateRequired(true);
+      socket.disconnect();
+    });
+
+    socket.on('soft-update', ({ latestVersion }) => {
+      setUpdateAvailable(true);
+      addSystemMessage(`New version ${latestVersion} is available!`, SystemMessageType.GENERAL);
+    });
+
+    socket.on('typing', ({ senderSocketId }) => {
+      if (activeChatTargetRef.current === 'ROOM') {
+        setTypingUsers(prev => [...prev, senderSocketId]);
+      } else if (activeChatTargetRef.current === senderSocketId) {
+        setTypingUsers(prev => [...prev, senderSocketId]);
+      }
+    });
+
+    socket.on('stop-typing', ({ senderSocketId }) => {
+      setTypingUsers(prev => prev.filter(id => id !== senderSocketId));
+    });
+
     return () => {
       console.log("Cleaning up socket connection...");
+      socket.off('typing');
+      socket.off('stop-typing');
+      socket.off('force-update');
+      socket.off('soft-update');
       socket.disconnect();
       socketRef.current = null;
     };
@@ -1104,64 +1132,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  useEffect(() => {
-    // Initialize Socket
-    socketRef.current = io(SIGNALING_SERVER_URL, {
-      transports: ['websocket'],
-      query: { version: APP_VERSION } // Send version
-    });
 
-    socketRef.current.on('connect', () => {
-      console.log('Connected to signaling server');
-      // Re-register if we have an identity
-      if (userIdentity && ownKeyPair) {
-        // We need to re-export key because we don't store the JWK in state, only the KeyPair object
-        exportPublicKeyJwk(ownKeyPair.publicKey).then(jwk => {
-          socketRef.current?.emit('register-user', {
-            username: userIdentity.username,
-            publicKey: jwk
-          });
-        });
-      }
-    });
-
-    socketRef.current.on('force-update', ({ minVersion }) => {
-      setUpdateRequired(true);
-      socketRef.current?.disconnect();
-    });
-
-    socketRef.current.on('soft-update', ({ latestVersion }) => {
-      setUpdateAvailable(true);
-      addSystemMessage(`New version ${latestVersion} is available!`, SystemMessageType.GENERAL);
-    });
-
-    socketRef.current.on('error', (msg: string) => {
-      console.error("Socket Error:", msg);
-      addSystemMessage(`Error: ${msg}`, SystemMessageType.ERROR);
-    });
-
-    if (!socketRef.current) return;
-
-    socketRef.current.on('typing', ({ senderSocketId }) => {
-      // Only show typing if it's relevant to current view
-      if (activeChatTarget === 'ROOM') {
-        // For room, we might want to map socketId to username, but for now just show someone is typing
-        // Or check if sender is in activeUsers
-        setTypingUsers(prev => [...prev, senderSocketId]);
-      } else if (activeChatTarget === senderSocketId) {
-        setTypingUsers(prev => [...prev, senderSocketId]);
-      }
-    });
-
-    socketRef.current.on('stop-typing', ({ senderSocketId }) => {
-      setTypingUsers(prev => prev.filter(id => id !== senderSocketId));
-    });
-
-    return () => {
-      socketRef.current?.off('typing');
-      socketRef.current?.off('stop-typing');
-    };
-  }, [activeChatTarget, roomId]);
 
   const value = {
     roomId,
