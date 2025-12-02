@@ -19,6 +19,7 @@ export interface UserProfile {
   username: string;
   publicKey: JsonWebKey;
   avatarColor?: string; // Optional, generated locally
+  isOnline?: boolean;
 }
 
 export enum SystemMessageType {

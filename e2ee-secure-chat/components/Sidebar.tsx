@@ -111,6 +111,7 @@ const Sidebar: React.FC = () => {
                     </div>
                 ))}
 
+                {/* Direct Messages Section */}
                 <div className="pt-4 pb-2 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider flex justify-between items-center">
                     <span>Direct Messages</span>
                     <button
@@ -124,7 +125,51 @@ const Sidebar: React.FC = () => {
                     </button>
                 </div>
 
-                {activeUsers.filter(u => u.username !== userIdentity?.username).map((user) => (
+                {/* Filter for Direct Messages: Users we have unread counts for OR are the active target OR have a shared secret (implied by being in activeUsers but maybe offline) */}
+                {/* Actually, ChatContext now keeps DM partners in activeUsers even if offline. So we filter by 'has history' logic or just separate them. */}
+                {/* Let's define "Direct Message" as anyone we have a shared secret with (which means we exchanged keys). */}
+                {/* And "Room Member" as anyone else who is online. */}
+
+                {activeUsers.filter(u => u.username !== userIdentity?.username && (unreadCounts[u.socketId] > 0 || activeChatTarget === u.socketId || !u.isOnline)).map((user) => (
+                    <div
+                        key={user.socketId}
+                        onClick={() => setActiveChatTarget(user.socketId)}
+                        className={`flex items-center p-3 rounded-lg cursor-pointer transition-all relative ${activeChatTarget === user.socketId
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : 'hover:bg-gray-800 text-gray-300'
+                            }`}
+                    >
+                        <div
+                            className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold mr-3 border-2 ${user.isOnline ? 'border-green-500' : 'border-gray-600'}`}
+                            style={{ backgroundColor: user.avatarColor || '#6366F1' }}
+                        >
+                            {user.username.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">
+                                {user.username}
+                            </div>
+                            <div className={`text-xs flex items-center ${user.isOnline ? 'text-green-400' : 'text-gray-500'}`}>
+                                <span className={`w-2 h-2 rounded-full mr-1 ${user.isOnline ? 'bg-green-500' : 'bg-gray-500'}`}></span>
+                                {user.isOnline ? 'Online' : 'Offline'}
+                            </div>
+                        </div>
+
+                        {/* Unread Badge */}
+                        {unreadCounts[user.socketId] > 0 && (
+                            <div className="absolute top-3 right-3 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-md animate-pulse">
+                                {unreadCounts[user.socketId]}
+                            </div>
+                        )}
+                    </div>
+                ))}
+
+                {/* Room Members Section */}
+                <div className="pt-4 pb-2 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Room Members
+                </div>
+
+                {activeUsers.filter(u => u.username !== userIdentity?.username && u.isOnline && !(unreadCounts[u.socketId] > 0 || activeChatTarget === u.socketId)).map((user) => (
                     <div
                         key={user.socketId}
                         onClick={() => setActiveChatTarget(user.socketId)}
@@ -135,7 +180,7 @@ const Sidebar: React.FC = () => {
                     >
                         <div
                             className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold mr-3 border-2 border-gray-600"
-                            style={{ backgroundColor: user.avatarColor || '#6366F1' }}
+                            style={{ backgroundColor: user.avatarColor || '#10B981' }}
                         >
                             {user.username.charAt(0)}
                         </div>
@@ -143,18 +188,10 @@ const Sidebar: React.FC = () => {
                             <div className="font-medium truncate">
                                 {user.username}
                             </div>
-                            <div className="text-xs text-green-400 flex items-center">
-                                <span className="w-2 h-2 bg-green-500 rounded-full mr-1"></span>
-                                Online
+                            <div className="text-xs text-gray-400 flex items-center">
+                                In Room
                             </div>
                         </div>
-
-                        {/* Unread Badge */}
-                        {unreadCounts[user.socketId] > 0 && (
-                            <div className="absolute top-3 right-3 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-md animate-pulse">
-                                {unreadCounts[user.socketId]}
-                            </div>
-                        )}
                     </div>
                 ))}
 

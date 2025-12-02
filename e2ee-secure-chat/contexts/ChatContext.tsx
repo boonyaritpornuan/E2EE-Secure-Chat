@@ -647,14 +647,56 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     socket.on('room-users', async (users: UserProfile[]) => {
       console.log("Received room users:", users);
       setActiveUsers(prev => {
-        const dmPartners = prev.filter(u => sharedSecretsRef.current.has(u.socketId) || activeChatTargetRef.current === u.socketId);
-        const newUsers = [...users];
-        dmPartners.forEach(dmUser => {
-          if (!newUsers.find(u => u.socketId === dmUser.socketId)) {
-            newUsers.push(dmUser);
+        // 1. Mark incoming users as online
+        const incomingUsers = users.map(u => ({ ...u, isOnline: true }));
+
+        // 2. Identify existing DM partners (users we have secrets with or active chat)
+        // We use USERNAME as the stable identifier to prevent duplicates if socketId changed
+        const existingPartners = prev.filter(u =>
+          sharedSecretsRef.current.has(u.socketId) ||
+          activeChatTargetRef.current === u.socketId ||
+          // Also keep if we have unread messages from them?
+          unreadCounts[u.socketId] > 0
+        );
+
+        // 3. Merge
+        const mergedUsers = [...incomingUsers];
+
+        existingPartners.forEach(partner => {
+          // Check if this partner is already in the incoming list (by username)
+          const matchIndex = mergedUsers.findIndex(u => u.username === partner.username);
+
+          if (matchIndex !== -1) {
+            // Partner is online. Ensure we keep any local state (like avatarColor) if needed?
+            // But importantly, the incoming list has the NEW socketId. 
+            // We should update our sharedSecrets map if the socketId changed!
+            const newUser = mergedUsers[matchIndex];
+            if (newUser.socketId !== partner.socketId) {
+              // Socket ID changed for this user!
+              // Migrate the shared secret to the new socket ID
+              const secret = sharedSecretsRef.current.get(partner.socketId);
+              if (secret) {
+                sharedSecretsRef.current.set(newUser.socketId, secret);
+                // sharedSecretsRef.current.delete(partner.socketId); // Optional: keep old for a bit?
+              }
+              // Also update unread counts mapping if needed? 
+              // (Complex, maybe just reset or keep on old ID? For now let's assume unread is lost or we need to migrate it too)
+              if (unreadCounts[partner.socketId]) {
+                setUnreadCounts(prevCounts => {
+                  const newCounts = { ...prevCounts };
+                  newCounts[newUser.socketId] = (newCounts[newUser.socketId] || 0) + newCounts[partner.socketId];
+                  delete newCounts[partner.socketId];
+                  return newCounts;
+                });
+              }
+            }
+          } else {
+            // Partner is NOT in the room. Mark as offline.
+            mergedUsers.push({ ...partner, isOnline: false });
           }
         });
-        return newUsers;
+
+        return mergedUsers;
       });
 
       // Handle pending target logic...
@@ -711,10 +753,50 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     socket.on('user-joined', async (user: UserProfile) => {
       console.log("User joined:", user);
+      const onlineUser = { ...user, isOnline: true };
+
       setActiveUsers((prev: UserProfile[]) => {
-        if (prev.find(u => u.socketId === user.socketId)) return prev;
-        return [...prev, user];
+        // Check if we already have this user (by username)
+        const existingIndex = prev.findIndex(u => u.username === user.username);
+
+        if (existingIndex !== -1) {
+          // Update existing entry
+          const existingUser = prev[existingIndex];
+
+          // Handle Socket ID Change (Reconnect)
+          if (existingUser.socketId !== user.socketId) {
+            console.log(`User ${user.username} reconnected with new socket ID.`);
+            // Migrate Secret
+            const secret = sharedSecretsRef.current.get(existingUser.socketId);
+            if (secret) {
+              sharedSecretsRef.current.set(user.socketId, secret);
+            }
+            // Migrate Unread
+            if (unreadCounts[existingUser.socketId]) {
+              setUnreadCounts(prevCounts => {
+                const newCounts = { ...prevCounts };
+                newCounts[user.socketId] = (newCounts[user.socketId] || 0) + newCounts[existingUser.socketId];
+                delete newCounts[existingUser.socketId];
+                return newCounts;
+              });
+            }
+
+            // If this was our active target, update it!
+            if (activeChatTargetRef.current === existingUser.socketId) {
+              handleSetActiveChatTarget(user.socketId, user.username);
+              addSystemMessage(`${user.username} reconnected. Session updated.`, SystemMessageType.CONNECTION_STATUS);
+            }
+          }
+
+          const newUsers = [...prev];
+          newUsers[existingIndex] = onlineUser;
+          return newUsers;
+        }
+
+        // New user
+        return [...prev, onlineUser];
       });
+
       addSystemMessage(`${user.username} joined the room.`, SystemMessageType.CONNECTION_STATUS);
 
       const pending = pendingTargetUserRef.current;
@@ -722,14 +804,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         handleSetActiveChatTarget(user.socketId, user.username);
         setPendingTargetUser(null);
         addSystemMessage(`User ${user.username} just joined! Starting chat.`, SystemMessageType.GENERAL);
-      }
-
-      // Auto-update active chat target if the user reconnects (same username, new socketId)
-      const currentChatUsername = activeChatUsernameRef.current;
-      if (currentChatUsername && user.username === currentChatUsername && activeChatTargetRef.current !== 'ROOM') {
-        console.log(`Active chat user ${user.username} reconnected. Updating target to ${user.socketId}`);
-        handleSetActiveChatTarget(user.socketId, user.username);
-        addSystemMessage(`${user.username} reconnected. Session updated.`, SystemMessageType.CONNECTION_STATUS);
       }
 
       const currentKeyPair = ownKeyPairRef.current;
@@ -748,7 +822,13 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (user) {
           addSystemMessage(`${user.username} left the room.`, SystemMessageType.CONNECTION_STATUS);
         }
-        if (sharedSecretsRef.current.has(socketId)) return prev;
+
+        // If we have a shared secret (DM history), keep them but mark offline
+        if (sharedSecretsRef.current.has(socketId)) {
+          return prev.map(u => u.socketId === socketId ? { ...u, isOnline: false } : u);
+        }
+
+        // Otherwise remove
         return prev.filter((u: UserProfile) => u.socketId !== socketId);
       });
     });
