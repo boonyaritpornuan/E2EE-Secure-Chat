@@ -37,10 +37,74 @@ const socketToRoom = new Map();
 const allUsers = new Map(); // username -> { socketId, publicKey, username }
 
 // --- Server Stats ---
-const stats = {
+const fs = require('fs');
+const path = require('path');
+
+// --- Persistent Stats Management ---
+const STATS_FILE = path.join(__dirname, 'stats.json');
+
+let stats = {
     totalVisits: 0,
     activeUsers: 0,
-    startTime: Date.now()
+    startTime: Date.now(),
+    dailyStats: {} // Format: "YYYY-MM-DD": { visits: 0, uniqueIps: [] }
+};
+
+// Load stats from disk
+try {
+    if (fs.existsSync(STATS_FILE)) {
+        const rawData = fs.readFileSync(STATS_FILE, 'utf8');
+        const savedStats = JSON.parse(rawData);
+
+        // Merge saved stats (excluding activeUsers/startTime which are session-specific)
+        stats.totalVisits = savedStats.totalVisits || 0;
+        stats.dailyStats = savedStats.dailyStats || {};
+
+        console.log('Loaded stats from disk.');
+    }
+} catch (err) {
+    console.error('Error loading stats:', err);
+}
+
+// Helper to save stats
+const saveStats = () => {
+    try {
+        const dataToSave = {
+            totalVisits: stats.totalVisits,
+            dailyStats: stats.dailyStats
+        };
+        fs.writeFileSync(STATS_FILE, JSON.stringify(dataToSave, null, 2));
+    } catch (err) {
+        console.error('Error saving stats:', err);
+    }
+};
+
+// Save every 1 minute
+setInterval(saveStats, 60000);
+
+// Helper to update daily stats
+const trackVisit = (ip) => {
+    const today = new Date().toISOString().split('T')[0];
+
+    if (!stats.dailyStats[today]) {
+        stats.dailyStats[today] = { visits: 0, uniqueIps: [] };
+    }
+
+    stats.dailyStats[today].visits++;
+
+    // Track unique IP
+    if (!stats.dailyStats[today].uniqueIps.includes(ip)) {
+        stats.dailyStats[today].uniqueIps.push(ip);
+    }
+
+    // Cleanup old data (keep last 30 days)
+    const days = Object.keys(stats.dailyStats).sort();
+    if (days.length > 30) {
+        const daysToRemove = days.slice(0, days.length - 30);
+        daysToRemove.forEach(day => delete stats.dailyStats[day]);
+    }
+
+    saveStats(); // Save on new visit (optional, maybe too frequent, but safe for low traffic)
 };
 
 // --- Rate Limiting (Simple Token Bucket per Socket) ---
@@ -139,6 +203,7 @@ io.on('connection', (socket) => {
 
     stats.totalVisits++;
     stats.activeUsers++;
+    trackVisit(clientIp);
 
     // Rate Limit Middleware for this socket
     socket.use(([event, ...args], next) => {
