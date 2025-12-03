@@ -29,6 +29,7 @@ const UpdateBanner: React.FC = () => {
 
 const AppContent: React.FC = () => {
   const { roomId, activeChatTarget, updateRequired } = useChat();
+  const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
 
   if (updateRequired) {
     return (
@@ -52,16 +53,21 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-gray-100 overflow-hidden">
-      <Header />
+      <Header onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
 
       {/* Soft Update Banner */}
       {/* We need to access updateAvailable from context, but AppContent is inside ChatProvider, so we can use useChat() */}
       <UpdateBanner />
 
-      <div className="flex flex-grow overflow-hidden">
-        {roomId && <Sidebar />}
+      <div className="flex flex-grow overflow-hidden relative">
+        {roomId && (
+          <Sidebar
+            isOpen={isSidebarOpen}
+            onClose={() => setIsSidebarOpen(false)}
+          />
+        )}
 
-        <main className="flex-grow flex flex-col relative">
+        <main className="flex-grow flex flex-col relative w-full">
           {!roomId ? (
             <div className="flex-grow flex items-center justify-center p-4 bg-gradient-to-br from-gray-900 to-gray-800">
               <CreateOrJoinRoom />

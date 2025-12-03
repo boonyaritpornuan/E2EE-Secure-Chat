@@ -133,16 +133,17 @@ const ChatRoom: React.FC = () => {
       {/* Chat Header */}
       <div className="p-4 bg-gray-900 border-b border-gray-700 flex justify-between items-center shadow-sm">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center">
+          <h2 className="text-lg font-bold text-white flex items-center min-w-0 overflow-hidden">
             {activeChatTarget === 'ROOM' ? (
-              <>
-                <span className="mr-2 text-gray-400">#</span> {roomId === 'Direct Chat' ? 'Direct Chat' : roomId}
-              </>
+              <div className="flex items-center truncate">
+                <span className="mr-2 text-gray-400 flex-shrink-0">#</span>
+                <span className="truncate">{roomId === 'Direct Chat' ? 'Direct Chat' : roomId}</span>
+              </div>
             ) : (
-              <>
-                <span className="w-3 h-3 rounded-full bg-green-500 mr-2"></span>
-                {targetUser?.username || 'Unknown User'}
-              </>
+              <div className="flex items-center truncate">
+                <span className="w-3 h-3 rounded-full bg-green-500 mr-2 flex-shrink-0"></span>
+                <span className="truncate">{targetUser?.username || 'Unknown User'}</span>
+              </div>
             )}
           </h2>
           <div className="text-xs text-gray-400">
