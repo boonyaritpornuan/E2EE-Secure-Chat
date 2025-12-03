@@ -371,10 +371,42 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Peer-to-Peer Status Check
+    socket.on('peer-ping', ({ targetSocketId }) => {
+        io.to(targetSocketId).emit('peer-ping', { senderSocketId: socket.id });
+    });
+
+    socket.on('peer-pong', ({ targetSocketId }) => {
+        io.to(targetSocketId).emit('peer-pong', { senderSocketId: socket.id });
+    });
+
     // Admin Stats Endpoint (Optional, for debugging)
     socket.on('get-stats', (callback) => {
         if (typeof callback === 'function') {
             callback(stats);
+        }
+    });
+
+    // --- Heartbeat & Online Status ---
+    socket.on('heartbeat', () => {
+        // Just keep the connection alive, maybe update lastSeen timestamp if we tracked it
+    });
+
+    socket.on('check-user-online', ({ targetUsername }, callback) => {
+        if (typeof callback !== 'function') return;
+        const user = allUsers.get(targetUsername);
+        if (user) {
+            // Verify socket is actually connected
+            const targetSocket = io.sockets.sockets.get(user.socketId);
+            if (targetSocket && targetSocket.connected) {
+                callback({ isOnline: true, socketId: user.socketId });
+            } else {
+                // Stale entry cleanup
+                allUsers.delete(targetUsername);
+                callback({ isOnline: false });
+            }
+        } else {
+            callback({ isOnline: false });
         }
     });
 

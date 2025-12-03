@@ -3,7 +3,7 @@ import { useChat } from '../contexts/ChatContext';
 import { generateRandomIdentity, storeIdentity } from '../utils/userManager';
 
 const CreateOrJoinRoom: React.FC = () => {
-  const { joinRoom, userIdentity, unreadCounts, messages, directMessages, activeUsers, chatRequests, startDirectChat, acceptDirectChat } = useChat();
+  const { joinRoom, userIdentity, unreadCounts, messages, directMessages, activeUsers, chatRequests, startDirectChat, acceptDirectChat, checkUserOnline } = useChat();
   const [roomName, setRoomName] = useState('');
   const [targetUsername, setTargetUsername] = useState('');
   const [isJoining, setIsJoining] = useState(false);
@@ -68,6 +68,14 @@ const CreateOrJoinRoom: React.FC = () => {
     if (!targetUsername.trim()) return;
 
     setIsJoining(true);
+
+    const isOnline = await checkUserOnline(targetUsername.trim());
+    if (!isOnline) {
+      alert(`User ${targetUsername} is currently offline or does not exist.`);
+      setIsJoining(false);
+      return;
+    }
+
     await startDirectChat(targetUsername.trim());
     setIsJoining(false);
   };

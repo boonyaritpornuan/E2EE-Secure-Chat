@@ -1,8 +1,17 @@
 const io = require('socket.io-client');
+const fs = require('fs');
+
+function log(msg) {
+    const line = `[${new Date().toISOString()}] ${msg}\n`;
+    console.log(msg);
+    fs.appendFileSync('test_sender.log', line);
+}
 
 const socket = io('http://localhost:3001');
 const USERNAME = 'BotSender';
 const ROOM = 'stableRoom';
+
+log('Starting BotSender...');
 
 const dummyKey = {
     kty: "RSA",
@@ -22,7 +31,7 @@ const CHUNK_SIZE = 16 * 1024;
 const totalChunks = Math.ceil(FILE_SIZE / CHUNK_SIZE);
 
 socket.on('connect', () => {
-    console.log('BotSender connected');
+    log('BotSender connected');
     socket.emit('register-user', { username: USERNAME, publicKey: dummyKey });
     socket.emit('join-room', { roomId: ROOM, username: USERNAME, publicKey: dummyKey });
 });
@@ -31,26 +40,25 @@ socket.on('room-users', (users) => {
     // Find a real user (not BotSender and not UserB from test_client)
     const target = users.find(u => u.username !== USERNAME && u.username !== 'UserB');
     if (target) {
-        console.log(`Found target ${target.username} (${target.socketId})`);
+        log(`Found target ${target.username} (${target.socketId})`);
         startTransfer(target.socketId);
     }
 });
 
 socket.on('user-joined', (user) => {
     if (user.username !== USERNAME && user.username !== 'UserB') {
-        console.log(`User joined: ${user.username}`);
+        log(`User joined: ${user.username}`);
         startTransfer(user.socketId);
     }
 });
 
-let transferStarted = false;
 function startTransfer(targetSocketId) {
-    if (transferStarted) return;
-    transferStarted = true;
+    // if (transferStarted) return; // Allow multiple for testing
+    // transferStarted = true;
 
     const transferId = `transfer-${Date.now()}`;
     const fileName = `test_image_${Date.now()}.png`; // Use .png to test extension
-    console.log(`Offering file ${fileName} to ${targetSocketId}`);
+    log(`Offering file ${fileName} to ${targetSocketId}`);
 
     socket.emit('file-offer', {
         targetSocketId,
@@ -65,7 +73,7 @@ function startTransfer(targetSocketId) {
 
     socket.on('file-accept', async (data) => {
         if (data.transferId === transferId) {
-            console.log('File accepted! Sending chunks...');
+            log('File accepted! Sending chunks...');
             for (let i = 0; i < totalChunks; i++) {
                 const start = i * CHUNK_SIZE;
                 const end = Math.min(start + CHUNK_SIZE, FILE_SIZE);
@@ -80,8 +88,17 @@ function startTransfer(targetSocketId) {
                 await new Promise(r => setTimeout(r, 10));
             }
             socket.emit('file-complete', { targetSocketId, transferId });
-            console.log('File transfer complete!');
-            // Keep running to see if client complains or anything
+            log('File transfer complete!');
+            socket.on('peer-ping', ({ senderSocketId }) => {
+                log(`Received ping from ${senderSocketId}, sending pong.`);
+                socket.emit('peer-pong', { targetSocketId: senderSocketId });
+            });
+
+            // Keep alive
+            setInterval(() => {
+                if (socket.connected) socket.emit('heartbeat');
+            }, 10000);
         }
     });
 }
+```

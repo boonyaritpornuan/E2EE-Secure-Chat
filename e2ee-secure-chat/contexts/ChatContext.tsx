@@ -59,6 +59,7 @@ interface ChatContextType {
   sendTyping: (isTyping: boolean) => void;
   updateRequired: boolean;
   updateAvailable: boolean;
+  checkUserOnline: (username: string) => Promise<boolean>;
   refreshActiveUsers: () => void;
 }
 
@@ -101,7 +102,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const activeTransfersRef = useRef<Record<string, FileTransferState>>({});
 
   // Track processed transfers to prevent duplicates (Persistent across renders)
+  // Track processed transfers to prevent duplicates (Persistent across renders)
   const processedTransferIds = useRef(new Set<string>());
+
+  // Store file chunks outside of React state for performance and stability
+  const fileChunksRef = useRef<Map<string, Map<number, ArrayBuffer>>>(new Map());
 
   useEffect(() => { ownKeyPairRef.current = ownKeyPair; }, [ownKeyPair]);
   useEffect(() => { activeUsersRef.current = activeUsers; }, [activeUsers]);
@@ -322,6 +327,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         });
         const peers = Array.from(uniquePeersMap.values());
+        console.log(`[Group Transfer] Found ${peers.length} peers in room to send to.`);
 
         if (peers.length === 0) {
           addSystemMessage("No other users in room to send file to.", SystemMessageType.ERROR);
@@ -528,11 +534,14 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         status: 'pending',
         isUpload: false,
         peerSocketId: senderSocketId,
-        chunks: new Map(),
+        // chunks: new Map(), // Don't store chunks in state
         startTime: Date.now(),
         isDirect: data.isDirect,
         peerUsername: data.isDirect ? activeUsersRef.current.find(u => u.socketId === senderSocketId)?.username : undefined
       };
+
+      // Initialize chunks storage
+      fileChunksRef.current.set(data.transferId, new Map());
 
       // Update Ref IMMEDIATELY to ensure fileName is available for completion handler
       activeTransfersRef.current[data.transferId] = transferState;
@@ -580,21 +589,34 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     socket.on('file-chunk', ({ transferId, chunkId, data }: { transferId: string, chunkId: number, data: ArrayBuffer }) => {
+      // 1. Store chunk in Ref (Bypassing State)
+      const chunksMap = fileChunksRef.current.get(transferId);
+      if (chunksMap) {
+        chunksMap.set(chunkId, data);
+      } else {
+        // Fallback if map missing (shouldn't happen if offer processed)
+        const newMap = new Map<number, ArrayBuffer>();
+        newMap.set(chunkId, data);
+        fileChunksRef.current.set(transferId, newMap);
+      }
+
+      // 2. Update State (for UI Progress only) - Throttled
       setActiveTransfers(prev => {
         const transfer = prev[transferId];
         if (!transfer || transfer.status !== 'transferring') return prev;
 
-        const newChunks = new Map(transfer.chunks);
-        newChunks.set(chunkId, data);
-
-        const chunksReceived = newChunks.size;
+        // Calculate progress based on Ref size
+        const currentChunksMap = fileChunksRef.current.get(transferId);
+        const chunksReceived = currentChunksMap ? currentChunksMap.size : 0;
         const progress = Math.round((chunksReceived / transfer.chunksTotal) * 100);
+
+        // Only update if progress changed significantly or finished
+        if (progress === transfer.progress && progress < 100) return prev;
 
         return {
           ...prev,
           [transferId]: {
             ...transfer,
-            chunks: newChunks,
             chunksReceived,
             progress
           }
@@ -624,28 +646,54 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (!transfer.isUpload) {
         try {
-          const blob = FileTransferManager.reassembleFile(transfer.chunks!, transfer.chunksTotal, transfer.fileType);
+          const chunks = fileChunksRef.current.get(transferId);
+          if (!chunks || chunks.size === 0) {
+            console.error(`[File Complete] Error: No chunks found for ${transferId}.`);
+            addSystemMessage(`Error: Received empty file.`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
+            return;
+          }
+
+          console.log(`[File Complete] Reassembling ${transfer.fileName}. Chunks: ${chunks.size}/${transfer.chunksTotal}`);
+
+          const blob = FileTransferManager.reassembleFile(chunks, transfer.chunksTotal, transfer.fileType);
+
+          if (blob.size === 0) {
+            console.error(`[File Complete] Error: Reassembled blob is 0 bytes.`);
+            addSystemMessage(`Error: File corrupted (0 bytes).`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
+            return;
+          }
+
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.style.display = 'none';
           a.href = url;
 
           // Force Filename
-          const safeName = transfer.fileName && transfer.fileName.trim() !== ''
+          let safeName = transfer.fileName && transfer.fileName.trim() !== ''
             ? transfer.fileName
             : `received_file_${Date.now()}.bin`;
+
+          // Ensure extension exists if possible
+          if (!safeName.includes('.') && transfer.fileType) {
+            const ext = transfer.fileType.split('/')[1];
+            if (ext) safeName += `.${ext}`;
+          }
 
           a.setAttribute('download', safeName);
           document.body.appendChild(a);
 
-          console.log(`Attempting download: ${safeName} from ${url}`);
+          console.log(`Attempting download: ${safeName} from ${url} (${blob.size} bytes)`);
+          console.log(`Transfer Object:`, transfer);
           a.click();
 
-          // Cleanup
+          // Cleanup - Increase timeout to ensure browser has time to save
           setTimeout(() => {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-          }, 1000); // 1 second is enough usually
+            // Remove chunks from memory
+            fileChunksRef.current.delete(transferId);
+            console.log(`Cleaned up transfer ${transferId}`);
+          }, 30000); // 30 seconds wait
 
           addSystemMessage(`✅ File received: ${safeName}`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
         } catch (err) {
@@ -682,6 +730,19 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         delete newTransfers[transferId];
         return newTransfers;
       });
+    });
+
+    // --- Peer Status Listeners ---
+    socket.on('peer-ping', ({ senderSocketId }: { senderSocketId: string }) => {
+      socket.emit('peer-pong', { targetSocketId: senderSocketId });
+    });
+
+    socket.on('peer-pong', ({ senderSocketId }: { senderSocketId: string }) => {
+      // Mark user as online/active
+      setActiveUsers(prev => prev.map(u =>
+        u.socketId === senderSocketId ? { ...u, isOnline: true } : u
+      ));
+      // We could also update a 'lastSeen' timestamp here if we had one
     });
 
     // --- Chat Listeners ---
@@ -1006,17 +1067,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     activeUsersRef.current = activeUsers;
   }, [activeUsers]);
 
-  const deriveSecretForUser = async (targetSocketId: string, publicKeyJwk: JsonWebKey) => {
-    if (!ownKeyPair) return;
-    try {
-      const peerKey = await importPublicKeyJwk(publicKeyJwk);
-      const secret = await deriveSharedSecret(ownKeyPair.privateKey, peerKey);
-      sharedSecretsRef.current.set(targetSocketId, secret);
-      console.log(`Derived secret for ${targetSocketId}`);
-    } catch (e) {
-      console.error("Failed to derive secret:", e);
-    }
-  };
+
 
   const joinRoom = async (newRoomId: string) => {
     if (!socketRef.current || !userIdentity || !ownKeyPair) return;
@@ -1190,19 +1241,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // For now, just switching target is enough.
   };
 
-  const exitRoom = () => {
-    if (socketRef.current) {
-      socketRef.current.emit('leave-room');
-    }
-    setRoomId(null);
-    setRoomMessages([]);
-    setActiveUsers([]);
-    sharedSecretsRef.current.clear();
-    // Do NOT clear keys or identity
-    setActiveChatTarget('ROOM');
-    setUnreadCounts({});
-    setPendingTargetUser(null);
-  };
+
 
   const sendMessage = async (text: string) => {
     if (!socketRef.current || !ownKeyPair) return;
@@ -1367,6 +1406,18 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const checkUserOnline = (username: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (!socketRef.current) {
+        resolve(false);
+        return;
+      }
+      socketRef.current.emit('check-user-online', { targetUsername: username }, (response: { isOnline: boolean, socketId?: string }) => {
+        resolve(response.isOnline);
+      });
+    });
+  };
+
 
 
   const value = {
@@ -1404,8 +1455,41 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     sendTyping,
     updateRequired,
     updateAvailable,
+    checkUserOnline,
     refreshActiveUsers
   };
+
+  // Periodic Heartbeat
+  useEffect(() => {
+    if (!socketRef.current) return;
+    const interval = setInterval(() => {
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('heartbeat');
+      }
+    }, 10000); // Send heartbeat every 10 seconds
+    return () => clearInterval(interval);
+  }, [socketRef.current]);
+
+  // Periodic Peer/Group Check
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    const checkStatus = () => {
+      if (activeChatTarget === 'ROOM') {
+        // In Group: Sync with server to ensure our list matches reality
+        // The server tracks heartbeats, so asking it gives us the verified list
+        socketRef.current?.emit('get-room-users');
+      } else {
+        // In DM: Direct Ping to verify peer is truly reachable
+        socketRef.current?.emit('peer-ping', { targetSocketId: activeChatTarget });
+      }
+    };
+
+    const interval = setInterval(checkStatus, 20000); // Check every 20 seconds
+    // checkStatus(); // Don't run immediately on mount/change to avoid spamming on rapid switches
+
+    return () => clearInterval(interval);
+  }, [activeChatTarget]);
 
   return (
     <ChatContext.Provider value={value}>
