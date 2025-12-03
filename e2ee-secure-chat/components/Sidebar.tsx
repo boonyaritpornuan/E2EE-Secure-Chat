@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useChat } from '../contexts/ChatContext';
 
 const Sidebar: React.FC = () => {
-    const { activeUsers, userIdentity, activeChatTarget, setActiveChatTarget, unreadCounts, chatRequests, acceptDirectChat, roomId, joinRoom, startDirectChat } = useChat();
+    const { activeUsers, userIdentity, activeChatTarget, setActiveChatTarget, unreadCounts, chatRequests, acceptDirectChat, roomId, joinRoom, startDirectChat, directMessages } = useChat();
     const [targetUser, setTargetUser] = useState('');
     const [targetRoom, setTargetRoom] = useState('');
 
@@ -125,12 +125,17 @@ const Sidebar: React.FC = () => {
                     </button>
                 </div>
 
-                {/* Filter for Direct Messages: Users we have unread counts for OR are the active target OR have a shared secret (implied by being in activeUsers but maybe offline) */}
-                {/* Actually, ChatContext now keeps DM partners in activeUsers even if offline. So we filter by 'has history' logic or just separate them. */}
-                {/* Let's define "Direct Message" as anyone we have a shared secret with (which means we exchanged keys). */}
-                {/* And "Room Member" as anyone else who is online. */}
+                {/* Filter for Direct Messages: Users we have unread counts for OR are the active target OR have message history */}
+                {/* We check directMessages[u.username] to see if there is history. */}
 
-                {activeUsers.filter(u => u.username !== userIdentity?.username && (unreadCounts[u.socketId] > 0 || activeChatTarget === u.socketId || !u.isOnline)).map((user) => (
+                {activeUsers.filter(u =>
+                    u.username !== userIdentity?.username &&
+                    (unreadCounts[u.socketId] > 0 ||
+                        activeChatTarget === u.socketId ||
+                        (directMessages[u.username] && directMessages[u.username].length > 0) ||
+                        !u.isOnline // Keep offline users in DM list if they are in activeUsers (which implies history/connection)
+                    )
+                ).map((user) => (
                     <div
                         key={user.socketId}
                         onClick={() => setActiveChatTarget(user.socketId)}

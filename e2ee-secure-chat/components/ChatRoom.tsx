@@ -34,18 +34,8 @@ const ChatRoom: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter messages based on active target
-  const filteredMessages = messages.filter(msg => {
-
-
-    if (activeChatTarget === 'ROOM') {
-      return !msg.isDirect;
-    } else {
-      return msg.isDirect && (
-        (msg.senderIsSelf && msg.targetSocketId === activeChatTarget) ||
-        (!msg.senderIsSelf && msg.senderSocketId === activeChatTarget)
-      );
-    }
-  });
+  // Messages are already filtered by ChatContext based on activeChatTarget
+  const filteredMessages = messages;
 
   const targetUser = activeChatTarget === 'ROOM'
     ? null

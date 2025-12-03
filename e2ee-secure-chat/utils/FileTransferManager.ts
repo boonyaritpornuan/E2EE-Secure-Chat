@@ -14,6 +14,7 @@ export interface FileTransferState {
     chunks?: Map<number, ArrayBuffer>; // For receiver
     startTime: number;
     isDirect?: boolean;
+    peerUsername?: string;
 }
 
 export class FileTransferManager {

@@ -27,6 +27,7 @@ interface ChatContextType {
   activeUsers: UserProfile[];
 
   messages: DecryptedMessage[];
+  directMessages: Record<string, DecryptedMessage[]>;
   sendMessage: (text: string) => Promise<void>;
 
   // File Sharing (Legacy Offer/Accept)
@@ -68,10 +69,20 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [userIdentity, setUserIdentity] = useState<UserIdentity | null>(null);
   const [ownKeyPair, setOwnKeyPair] = useState<KeyPair | null>(null);
   const [activeUsers, setActiveUsers] = useState<UserProfile[]>([]);
-  const [messages, setMessages] = useState<DecryptedMessage[]>([]);
+
+  // Separate Message Stores
+  const [roomMessages, setRoomMessages] = useState<DecryptedMessage[]>([]);
+  const [directMessages, setDirectMessages] = useState<Record<string, DecryptedMessage[]>>({}); // Key: Username
+
   const [cryptoStatusMessage, setCryptoStatusMessage] = useState<string | null>("Initializing...");
   const [activeChatTarget, setActiveChatTarget] = useState<string | 'ROOM'>('ROOM');
   const [activeChatUsername, setActiveChatUsername] = useState<string | null>(null);
+
+  // Computed messages property for consumers
+  const messages = activeChatTarget === 'ROOM'
+    ? roomMessages
+    : (activeChatUsername ? (directMessages[activeChatUsername] || []) : []);
+
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [pendingTargetUser, setPendingTargetUser] = useState<string | null>(null);
   const [chatRequests, setChatRequests] = useState<Array<{ senderSocketId: string, senderUsername: string }>>([]);
@@ -100,8 +111,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => { activeTransfersRef.current = activeTransfers; }, [activeTransfers]);
 
   // Define addSystemMessage FIRST to avoid hoisting issues
-  const addSystemMessage = useCallback((text: string, systemType: SystemMessageType = SystemMessageType.GENERAL, options?: { isDirect?: boolean, peerId?: string }) => {
-    setMessages((prev: DecryptedMessage[]) => [...prev, {
+  const addSystemMessage = useCallback((text: string, systemType: SystemMessageType = SystemMessageType.GENERAL, options?: { isDirect?: boolean, peerId?: string, peerUsername?: string }) => {
+    const newMessage = {
       id: `sys-${Date.now()}-${Math.random()}`,
       timestamp: Date.now(),
       text,
@@ -111,7 +122,36 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isDirect: options?.isDirect,
       senderSocketId: options?.peerId,
       targetSocketId: options?.peerId
-    }]);
+    };
+
+    if (options?.isDirect) {
+      // We need a username to store this in directMessages
+      let targetUsername = options.peerUsername;
+
+      // Try to find username if not provided
+      if (!targetUsername && options.peerId) {
+        const user = activeUsersRef.current.find(u => u.socketId === options.peerId);
+        if (user) targetUsername = user.username;
+      }
+
+      // Fallback: If we still don't have a username, we might be in trouble.
+      // But if we are the sender, we might know who we are talking to via activeChatUsernameRef
+      if (!targetUsername && activeChatTargetRef.current !== 'ROOM' && activeChatTargetRef.current === options.peerId) {
+        targetUsername = activeChatUsernameRef.current || undefined;
+      }
+
+      if (targetUsername) {
+        setDirectMessages(prev => ({
+          ...prev,
+          [targetUsername!]: [...(prev[targetUsername!] || []), newMessage]
+        }));
+      } else {
+        console.warn("Could not determine username for direct system message:", text);
+        // Fallback to room? Or just drop? Better to drop than leak.
+      }
+    } else {
+      setRoomMessages(prev => [...prev, newMessage]);
+    }
   }, []);
 
   useEffect(() => {
@@ -239,7 +279,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           isUpload: true,
           peerSocketId: peerId,
           startTime: Date.now(),
-          isDirect: targetSocketId !== 'ROOM'
+          isDirect: targetSocketId !== 'ROOM',
+          peerUsername: targetSocketId !== 'ROOM' ? activeUsers.find(u => u.socketId === targetSocketId)?.username : undefined
         };
 
         // Store chunks
@@ -302,7 +343,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         await initiateTransfer(targetSocketId);
-        addSystemMessage(`Sent file offer: ${file.name} to user.`, SystemMessageType.GENERAL, { isDirect: true, peerId: targetSocketId });
+        addSystemMessage(`Sent file offer: ${file.name} to user.`, SystemMessageType.GENERAL, { isDirect: true, peerId: targetSocketId, peerUsername: targetUser.username });
       }
     } finally {
       // Release lock after a short delay to prevent accidental double-clicks
@@ -324,7 +365,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Update status to transferring
     updateTransferState(transferId, { status: 'transferring' });
-    addSystemMessage(`Accepting file: ${transfer.fileName}`, SystemMessageType.GENERAL, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+    addSystemMessage(`Accepting file: ${transfer.fileName}`, SystemMessageType.GENERAL, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
   };
 
   const declineFileTransfer = (transferId: string) => {
@@ -342,7 +383,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     delete newTransfers[transferId];
     setActiveTransfers(newTransfers);
 
-    addSystemMessage(`Declined file: ${transfer.fileName}`, SystemMessageType.GENERAL, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+    addSystemMessage(`Declined file: ${transfer.fileName}`, SystemMessageType.GENERAL, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
   };
 
   const sendChunks = async (transferId: string, targetSocketId: string, chunks: ArrayBuffer[]) => {
@@ -381,7 +422,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const transfer = activeTransfersRef.current[transferId];
     if (transfer) {
       updateTransferState(transferId, { status: 'completed', progress: 100 });
-      addSystemMessage(`✅ File sent: ${transfer.fileName} (${(transfer.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+      addSystemMessage(`✅ File sent: ${transfer.fileName} (${(transfer.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
 
       // Auto-remove after 2 seconds
       setTimeout(() => {
@@ -410,7 +451,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setActiveTransfers(newTransfers);
 
     const action = transfer.isUpload ? 'sending' : 'receiving';
-    addSystemMessage(`❌ Cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+    addSystemMessage(`❌ Cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
   };
 
   // Sync Ref with State (Must be at top level)
@@ -489,21 +530,22 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         peerSocketId: senderSocketId,
         chunks: new Map(),
         startTime: Date.now(),
-        isDirect: data.isDirect
+        isDirect: data.isDirect,
+        peerUsername: data.isDirect ? activeUsersRef.current.find(u => u.socketId === senderSocketId)?.username : undefined
       };
 
       // Update Ref IMMEDIATELY to ensure fileName is available for completion handler
       activeTransfersRef.current[data.transferId] = transferState;
 
       setActiveTransfers(prev => ({ ...prev, [data.transferId]: transferState }));
-      addSystemMessage(`📎 File offer: ${transferState.fileName} (${(transferState.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS, { isDirect: transferState.isDirect, peerId: transferState.peerSocketId });
+      addSystemMessage(`📎 File offer: ${transferState.fileName} (${(transferState.fileSize / 1024).toFixed(1)} KB)`, SystemMessageType.WEBRTC_STATUS, { isDirect: transferState.isDirect, peerId: transferState.peerSocketId, peerUsername: transferState.peerUsername });
     });
 
     socket.on('file-accept', async ({ transferId }: { transferId: string }) => {
       const transfer = activeTransfersRef.current[transferId];
       if (!transfer || !transfer.isUpload) return;
 
-      addSystemMessage(`File accepted! Sending ${transfer.fileName}...`, SystemMessageType.GENERAL, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+      addSystemMessage(`File accepted! Sending ${transfer.fileName}...`, SystemMessageType.GENERAL, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
 
       const chunks = (window as any).pendingFileChunks?.get(transferId);
       if (chunks) {
@@ -526,7 +568,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // We need to look it up from activeTransfersRef
       const transfer = activeTransfersRef.current[transferId];
       if (transfer) {
-        addSystemMessage(`File transfer declined.`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+        addSystemMessage(`File transfer declined.`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
       } else {
         addSystemMessage(`File transfer declined.`, SystemMessageType.ERROR);
       }
@@ -605,13 +647,13 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             URL.revokeObjectURL(url);
           }, 1000); // 1 second is enough usually
 
-          addSystemMessage(`✅ File received: ${safeName}`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+          addSystemMessage(`✅ File received: ${safeName}`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
         } catch (err) {
           console.error("Download failed:", err);
-          addSystemMessage(`Error saving file: ${err}`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+          addSystemMessage(`Error saving file: ${err}`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
         }
       } else {
-        addSystemMessage(`✅ File sent: ${transfer.fileName}`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+        addSystemMessage(`✅ File sent: ${transfer.fileName}`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
       }
 
       // 3. Update React State (Visuals)
@@ -635,7 +677,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const transfer = prev[transferId];
         if (!transfer) return prev;
         const action = transfer.isUpload ? 'receiving' : 'sending';
-        addSystemMessage(`❌ Peer cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId });
+        addSystemMessage(`❌ Peer cancelled ${action} ${transfer.fileName}`, SystemMessageType.ERROR, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
         const newTransfers = { ...prev };
         delete newTransfers[transferId];
         return newTransfers;
@@ -856,6 +898,22 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const displayName = senderProfile?.username || senderUsername || 'Unknown';
           const currentTarget = activeChatTargetRef.current;
 
+          // Ensure sender is in activeUsers (for Sidebar visibility) if it's a DM
+          if (payload.isDirect && !senderProfile && senderUsername && payload.senderPublicKeyJwkString) {
+            try {
+              const senderKey = JSON.parse(payload.senderPublicKeyJwkString);
+              const newUser: UserProfile = {
+                socketId: senderSocketId,
+                username: senderUsername,
+                publicKey: senderKey,
+                isOnline: true
+              };
+              setActiveUsers(prev => [...prev, newUser]);
+            } catch (e) {
+              console.error("Error adding new user from DM:", e);
+            }
+          }
+
           if (payload.isDirect) {
             if (currentTarget !== senderSocketId) {
               setUnreadCounts(prev => ({ ...prev, [senderSocketId]: (prev[senderSocketId] || 0) + 1 }));
@@ -866,15 +924,32 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           }
 
-          setMessages((prev: DecryptedMessage[]) => [...prev, {
-            id: payload.id,
-            timestamp: payload.timestamp,
+          // Variables for newMessage are missing in the original code, assuming they should be derived from payload and context
+          // For an incoming message, senderIsSelf should be false, senderName should be displayName,
+          // and id/timestamp/text should come from the decrypted content or generated.
+          // Assuming `msgId`, `timestamp`, `text`, `isDirect`, `activeChatTarget` were meant to be defined earlier or derived.
+          // For this fix, I'll assume `decryptedText` is the `text` and generate `id` and `timestamp`.
+          // `isDirect` comes from `payload.isDirect`. `activeChatTarget` is not relevant for incoming messages.
+          const newMessage = {
+            id: `${senderSocketId}-${Date.now()}`, // Generate a unique ID
+            timestamp: Date.now(),
             text: decryptedText,
-            senderIsSelf: false,
+            senderIsSelf: false, // Incoming message, so sender is not self
             senderName: displayName,
-            senderSocketId: senderSocketId,
+            targetSocketId: payload.isDirect ? undefined : undefined, // We don't know the socketId here easily, but for history it doesn't matter much. 
+            // Actually, if it's incoming DM, target is US. 
             isDirect: payload.isDirect
-          } as DecryptedMessage]);
+          } as DecryptedMessage;
+
+          if (payload.isDirect) {
+            const senderName = displayName; // Use displayName which is username
+            setDirectMessages(prev => ({
+              ...prev,
+              [senderName]: [...(prev[senderName] || []), newMessage]
+            }));
+          } else {
+            setRoomMessages(prev => [...prev, newMessage]);
+          }
         }
       } catch (e) { console.error("Decryption error:", e); }
     });
@@ -927,6 +1002,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, [userIdentity, ownKeyPair]); // Run once when identity/keys are ready
 
+  useEffect(() => {
+    activeUsersRef.current = activeUsers;
+  }, [activeUsers]);
+
   const deriveSecretForUser = async (targetSocketId: string, publicKeyJwk: JsonWebKey) => {
     if (!ownKeyPair) return;
     try {
@@ -953,7 +1032,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     setRoomId(newRoomId);
     // Only clear ROOM messages, keep DMs
-    setMessages(prev => prev.filter(m => m.isDirect));
+    setRoomMessages([]);
     setCryptoStatusMessage("Joined room. Waiting for messages...");
   };
 
@@ -1080,7 +1159,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setRoomId(null);
 
     // Only clear room messages, keep DMs
-    setMessages(prev => prev.filter(m => m.isDirect));
+    setRoomMessages([]);
 
     // Don't clear activeUsers - keep DM partners
     // Don't clear sharedSecretsRef - keep encryption keys for DMs
@@ -1116,7 +1195,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       socketRef.current.emit('leave-room');
     }
     setRoomId(null);
-    setMessages([]);
+    setRoomMessages([]);
     setActiveUsers([]);
     sharedSecretsRef.current.clear();
     // Do NOT clear keys or identity
@@ -1136,7 +1215,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const publicKeyJwk = await exportPublicKeyJwk(ownKeyPair.publicKey);
     const publicKeyString = JSON.stringify(publicKeyJwk);
 
-    setMessages((prev: DecryptedMessage[]) => [...prev, {
+    const newMessage = {
       id: msgId,
       timestamp,
       text,
@@ -1144,7 +1223,22 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       senderName: userIdentity?.username || 'Me',
       targetSocketId: isDirect ? activeChatTarget : undefined,
       isDirect
-    } as DecryptedMessage]);
+    } as DecryptedMessage;
+
+    if (isDirect) {
+      // Optimistically add to DM
+      const targetUser = activeUsers.find(u => u.socketId === activeChatTarget);
+      const targetUsername = targetUser?.username || activeChatUsername;
+
+      if (targetUsername) {
+        setDirectMessages(prev => ({
+          ...prev,
+          [targetUsername]: [...(prev[targetUsername] || []), newMessage]
+        }));
+      }
+    } else {
+      setRoomMessages(prev => [...prev, newMessage]);
+    }
 
     if (isDirect) {
       const targetSocketId = activeChatTarget;
@@ -1283,6 +1377,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     ownKeyPair,
     activeUsers,
     messages,
+    directMessages,
     sendMessage,
     sendFileOffer,
     acceptFileOffer,

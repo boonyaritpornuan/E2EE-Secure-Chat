@@ -3,7 +3,7 @@ import { useChat } from '../contexts/ChatContext';
 import { generateRandomIdentity, storeIdentity } from '../utils/userManager';
 
 const CreateOrJoinRoom: React.FC = () => {
-  const { joinRoom, userIdentity, unreadCounts, messages, setActiveChatTarget, setPendingTargetUser, chatRequests, startDirectChat, acceptDirectChat } = useChat();
+  const { joinRoom, userIdentity, unreadCounts, messages, directMessages, activeUsers, chatRequests, startDirectChat, acceptDirectChat } = useChat();
   const [roomName, setRoomName] = useState('');
   const [targetUsername, setTargetUsername] = useState('');
   const [isJoining, setIsJoining] = useState(false);
@@ -15,10 +15,22 @@ const CreateOrJoinRoom: React.FC = () => {
   // 1. Process unreadCounts (existing messages)
   Object.keys(unreadCounts).forEach(socketId => {
     if (socketId === 'ROOM') return;
-    const lastMsg = messages.slice().reverse().find(m => m.senderSocketId === socketId);
+
+    // Find username for this socketId
+    const user = activeUsers.find(u => u.socketId === socketId);
+    const username = user?.username;
+
+    let lastMsg: any = null;
+    if (username && directMessages[username]) {
+      lastMsg = directMessages[username].slice().reverse()[0];
+    } else {
+      // Fallback to room messages if for some reason it's there (shouldn't be for DM unreads)
+      lastMsg = messages.slice().reverse().find(m => m.senderSocketId === socketId);
+    }
+
     requestMap.set(socketId, {
       socketId,
-      username: lastMsg?.senderName || 'Unknown User',
+      username: lastMsg?.senderName || username || 'Unknown User',
       count: unreadCounts[socketId]
     });
   });
