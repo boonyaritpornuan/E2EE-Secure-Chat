@@ -29,8 +29,35 @@ const UpdateBanner: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { roomId, activeChatTarget, updateRequired } = useChat();
+  const { roomId, activeChatTarget, updateRequired, chatEnded, resetChatEnded } = useChat();
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
+
+  // 404 Check
+  if (window.location.pathname !== '/') {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-[#050505] text-white p-6 text-center">
+        <h1 className="text-6xl font-bold text-[#00FF41] mb-4">404</h1>
+        <p className="text-xl text-[#86868b] mb-8">Not Found. We let it be null.</p>
+        <a href="/" className="text-[#00FF41] hover:underline">Return Home</a>
+      </div>
+    );
+  }
+
+  // Chat Ended Check
+  if (chatEnded) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-[#050505] text-white p-6 text-center animate-fade-in">
+        <h1 className="text-4xl font-bold text-white mb-2">Chat Ended.</h1>
+        <p className="text-sm italic text-[#86868b] mb-8">Let it be null.</p>
+        <button
+          onClick={resetChatEnded}
+          className="px-6 py-2 bg-[#1A1A1A] hover:bg-[#333] text-white rounded-full transition-colors border border-[#333]"
+        >
+          Return to Home
+        </button>
+      </div>
+    );
+  }
 
   if (updateRequired) {
     return (

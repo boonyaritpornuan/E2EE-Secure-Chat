@@ -162,7 +162,7 @@ const ChatRoom: React.FC = () => {
             onClick={() => useChat().closeDirectChat(activeChatTarget)}
             className="px-4 py-1.5 bg-[#1A1A1A] hover:bg-[#333] text-white text-xs font-medium rounded-full transition-colors border border-[#333]"
           >
-            Close
+            End Chat
           </button>
         )}
       </div>

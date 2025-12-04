@@ -61,6 +61,8 @@ interface ChatContextType {
   updateAvailable: boolean;
   checkUserOnline: (username: string) => Promise<boolean>;
   refreshActiveUsers: () => void;
+  chatEnded: boolean;
+  resetChatEnded: () => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -90,6 +92,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const [fileOffers, setFileOffers] = useState<Array<{ senderSocketId: string, fileMetadata: any }>>([]);
   const [activeTransfers, setActiveTransfers] = useState<Record<string, FileTransferState>>({});
+  const [chatEnded, setChatEnded] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const sharedSecretsRef = useRef<Map<string, CryptoKey>>(new Map());
@@ -1232,6 +1235,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const closeDirectChat = (targetSocketId: string) => {
     if (activeChatTarget === targetSocketId) {
       setActiveChatTarget('ROOM');
+      setChatEnded(true);
     }
     // Notify the other user?
     if (socketRef.current) {
@@ -1240,6 +1244,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // If we are in "Direct Chat" virtual room and have no other chats, maybe leave?
     // For now, just switching target is enough.
   };
+
+  const resetChatEnded = () => setChatEnded(false);
 
 
 
@@ -1456,7 +1462,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     updateRequired,
     updateAvailable,
     checkUserOnline,
-    refreshActiveUsers
+    refreshActiveUsers,
+    chatEnded,
+    resetChatEnded
   };
 
   // Periodic Heartbeat
