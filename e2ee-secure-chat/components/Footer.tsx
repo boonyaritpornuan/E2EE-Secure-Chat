@@ -3,8 +3,8 @@ import React from 'react';
 
 const Footer: React.FC = () => {
   return (
-    <footer className="bg-gray-800 text-gray-400 text-center p-4 mt-auto">
-      <p>&copy; {new Date().getFullYear()} E2EE Secure Chat. All rights reserved (not really, it's a demo!).</p>
+    <footer className="bg-[#050505] text-[#86868b] text-center p-6 mt-auto text-sm border-t border-[#1A1A1A]">
+      <p>&copy; {new Date().getFullYear()} benull. Serverless. Encrypted. Ephemeral.</p>
     </footer>
   );
 };

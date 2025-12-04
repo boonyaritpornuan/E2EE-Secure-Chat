@@ -129,29 +129,29 @@ const ChatRoom: React.FC = () => {
   const displayTransfers = Object.values(groupedTransfers);
 
   return (
-    <div className="flex flex-col h-full bg-gray-800 relative">
+    <div className="flex flex-col h-full bg-[#050505] relative">
       {/* Chat Header */}
-      <div className="p-4 bg-gray-900 border-b border-gray-700 flex justify-between items-center shadow-sm">
+      <div className="p-4 bg-[#050505] border-b border-[#1A1A1A] flex justify-between items-center shadow-sm z-10">
         <div>
           <h2 className="text-lg font-bold text-white flex items-center min-w-0 overflow-hidden">
             {activeChatTarget === 'ROOM' ? (
               <div className="flex items-center truncate">
-                <span className="mr-2 text-gray-400 flex-shrink-0">#</span>
-                <span className="truncate">{roomId === 'Direct Chat' ? 'Direct Chat' : roomId}</span>
+                <span className="mr-2 text-[#86868b] flex-shrink-0">#</span>
+                <span className="truncate tracking-tight">{roomId === 'Direct Chat' ? 'Direct Chat' : roomId}</span>
               </div>
             ) : (
               <div className="flex items-center truncate">
-                <span className="w-3 h-3 rounded-full bg-green-500 mr-2 flex-shrink-0"></span>
-                <span className="truncate">{targetUser?.username || 'Unknown User'}</span>
+                <span className="w-2 h-2 rounded-full bg-[#00FF41] mr-2 flex-shrink-0 shadow-[0_0_5px_#00FF41]"></span>
+                <span className="truncate tracking-tight">{targetUser?.username || 'Unknown User'}</span>
               </div>
             )}
           </h2>
-          <div className="text-xs text-gray-400">
+          <div className="text-xs text-[#86868b] font-medium">
             {activeChatTarget === 'ROOM' ? (
               `${activeUsers.length} members online`
             ) : (
               <div className="flex flex-col">
-                <span>End-to-End Encrypted Direct Message</span>
+                <span className="uppercase tracking-wider text-[10px]">End-to-End Encrypted</span>
                 <SafetyNumberDisplay targetSocketId={activeChatTarget} />
               </div>
             )}
@@ -160,30 +160,29 @@ const ChatRoom: React.FC = () => {
         {activeChatTarget !== 'ROOM' && (
           <button
             onClick={() => useChat().closeDirectChat(activeChatTarget)}
-            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors"
+            className="px-4 py-1.5 bg-[#1A1A1A] hover:bg-[#333] text-white text-xs font-medium rounded-full transition-colors border border-[#333]"
           >
-            Close Chat
+            Close
           </button>
         )}
       </div>
 
       {/* Active File Transfers */}
-      {/* Active File Transfers */}
       {displayTransfers.length > 0 && (
-        <div className="bg-gray-900 p-2 border-b border-gray-700 space-y-2 max-h-40 overflow-y-auto">
+        <div className="bg-[#0A0A0A] p-2 border-b border-[#1A1A1A] space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
           {displayTransfers.map((transfer: any) => (
-            <div key={transfer.transferId || transfer.fileName} className="bg-gray-800 p-3 rounded border border-gray-600 flex flex-col space-y-2">
+            <div key={transfer.transferId || transfer.fileName} className="bg-[#1A1A1A] p-3 rounded-xl border border-[#333] flex flex-col space-y-2">
               <div className="flex justify-between items-center">
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-3">
                   <span className="text-xl">
                     {transfer.fileName.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? '🖼️' : (transfer.status === 'pending' ? '📎' : transfer.isUpload ? '⬆️' : '⬇️')}
                   </span>
                   <div>
                     <p className="text-sm font-bold text-white">
                       {transfer.fileName}
-                      {transfer.count && transfer.count > 1 && <span className="ml-2 text-xs bg-blue-600 px-1 rounded">x{transfer.count} users</span>}
+                      {transfer.count && transfer.count > 1 && <span className="ml-2 text-[10px] bg-[#333] px-1.5 py-0.5 rounded text-[#86868b]">x{transfer.count}</span>}
                     </p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-[10px] text-[#86868b] uppercase tracking-wider">
                       {(transfer.fileSize / 1024).toFixed(1)} KB • {transfer.status}
                     </p>
                   </div>
@@ -193,57 +192,45 @@ const ChatRoom: React.FC = () => {
                     <>
                       <button
                         onClick={() => acceptFileTransfer(transfer.transferId)}
-                        className="bg-green-600 hover:bg-green-700 text-white text-xs px-3 py-1 rounded transition-colors"
+                        className="bg-[#00FF41] hover:bg-[#00CC33] text-black text-xs font-bold px-3 py-1 rounded-full transition-colors"
                       >
                         Accept
                       </button>
                       <button
                         onClick={() => declineFileTransfer(transfer.transferId)}
-                        className="bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1 rounded transition-colors"
+                        className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1 rounded-full transition-colors"
                       >
                         Decline
                       </button>
                     </>
                   )}
-                  {/* Cancel Button (Handles both single and grouped) */}
+                  {/* Cancel Button */}
                   {(transfer.isUpload || transfer.status === 'transferring') && (
                     <button
                       onClick={() => {
                         if (transfer.count && transfer.count > 1) {
-                          // Cancel all peers in group
-                          // We don't have a bulk cancel function yet, so loop?
-                          // Or just cancel the one we have ID for?
-                          // Ideally we should loop through all peers in this group.
-                          // But we only have IDs in 'activeTransfers', not here fully?
-                          // We stored 'peers' array in groupedTransfers!
-                          // But we need transferIds...
-                          // Wait, groupedTransfers logic didn't store transferIds list.
-                          // Let's just cancel the current one for now, or improve logic.
-                          // Actually, let's just use cancelTransfer for the main ID, 
-                          // but user expects all.
-                          // For now, simple cancel.
                           cancelTransfer(transfer.transferId);
                         } else {
                           cancelTransfer(transfer.transferId);
                         }
                       }}
-                      className="bg-gray-600 hover:bg-gray-700 text-white text-xs px-3 py-1 rounded transition-colors"
+                      className="bg-[#333] hover:bg-[#444] text-white text-xs font-medium px-3 py-1 rounded-full transition-colors"
                     >
                       Cancel
                     </button>
                   )}
                 </div>
               </div>
-              {/* Progress Bar - only show when transferring */}
+              {/* Progress Bar */}
               {transfer.status === 'transferring' && (
                 <>
-                  <div className="w-full bg-gray-700 rounded-full h-2.5">
+                  <div className="w-full bg-[#333] rounded-full h-1.5">
                     <div
-                      className="h-2.5 rounded-full bg-blue-600"
+                      className="h-1.5 rounded-full bg-[#00FF41] shadow-[0_0_5px_#00FF41]"
                       style={{ width: `${transfer.progress}%` }}
                     ></div>
                   </div>
-                  <div className="text-right text-xs text-gray-400">{transfer.progress}%</div>
+                  <div className="text-right text-[10px] text-[#86868b] font-mono">{transfer.progress}%</div>
                 </>
               )}
             </div>
@@ -252,13 +239,13 @@ const ChatRoom: React.FC = () => {
       )}
 
       {/* Messages Area */}
-      <div className="flex-grow overflow-y-auto p-4 space-y-4 custom-scrollbar">
+      <div className="flex-grow overflow-y-auto p-4 space-y-6 custom-scrollbar">
         {filteredMessages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-50">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="flex flex-col items-center justify-center h-full text-[#333]">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03 8-9 8s9 3.582 9 8z" />
             </svg>
-            <p>No messages yet.</p>
+            <p className="text-sm font-light tracking-widest uppercase">No messages yet</p>
           </div>
         )}
 
@@ -268,22 +255,22 @@ const ChatRoom: React.FC = () => {
             className={`flex flex-col ${msg.isSystem ? 'items-center' : (msg.senderIsSelf ? 'items-end' : 'items-start')}`}
           >
             {!msg.isSystem && !msg.senderIsSelf && activeChatTarget === 'ROOM' && (
-              <span className="text-xs text-gray-400 mb-1 ml-1">{msg.senderName}</span>
+              <span className="text-[10px] text-[#86868b] mb-1 ml-2 font-bold">{msg.senderName}</span>
             )}
 
             <div
-              className={`max-w-[85%] md:max-w-[70%] px-4 py-2 rounded-2xl shadow-md ${msg.isSystem
-                ? (msg.text?.includes('File offer') ? 'bg-blue-900/50 text-blue-200 border border-blue-700 py-2 px-4 rounded-xl' : 'bg-gray-700/50 text-gray-300 text-xs py-1 px-3 rounded-full')
+              className={`max-w-[85%] md:max-w-[70%] px-5 py-3 shadow-sm ${msg.isSystem
+                ? (msg.text?.includes('File offer') ? 'bg-[#1A1A1A] text-[#00FF41] border border-[#00FF41]/30 rounded-xl' : 'bg-[#1A1A1A] text-[#86868b] text-xs py-1 px-3 rounded-full border border-[#333]')
                 : msg.senderIsSelf
-                  ? 'bg-blue-600 text-white rounded-br-none'
-                  : 'bg-gray-700 text-gray-100 rounded-bl-none'
+                  ? 'bg-white text-black rounded-[20px] rounded-br-sm'
+                  : 'bg-[#1A1A1A] text-[#F5F5F7] rounded-[20px] rounded-bl-sm border border-[#333]'
                 }`}
             >
-              <p className="text-sm break-words whitespace-pre-wrap leading-relaxed">{renderMessageText(msg)}</p>
+              <p className="text-sm break-words whitespace-pre-wrap leading-relaxed font-medium">{renderMessageText(msg)}</p>
             </div>
 
             {!msg.isSystem && (
-              <span className={`text-[10px] text-gray-500 mt-1 ${msg.senderIsSelf ? 'mr-1' : 'ml-1'}`}>
+              <span className={`text-[10px] text-[#444] mt-1 ${msg.senderIsSelf ? 'mr-1' : 'ml-1'}`}>
                 {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
@@ -295,7 +282,7 @@ const ChatRoom: React.FC = () => {
       {/* Typing Indicator */}
       {
         typingUsers.length > 0 && (
-          <div className="px-4 py-1 bg-gray-900 text-xs text-gray-400 italic animate-pulse">
+          <div className="px-6 py-2 bg-[#050505] text-xs text-[#00FF41] italic animate-pulse font-mono">
             {activeChatTarget === 'ROOM'
               ? 'Someone is typing...'
               : 'User is typing...'}
@@ -304,7 +291,7 @@ const ChatRoom: React.FC = () => {
       }
 
       {/* Input Area */}
-      <div className="p-4 bg-gray-900 border-t border-gray-700">
+      <div className="p-4 bg-[#050505] border-t border-[#1A1A1A]">
         <form onSubmit={handleSendMessage} className="flex items-center space-x-3">
           <input
             type="file"
@@ -315,10 +302,10 @@ const ChatRoom: React.FC = () => {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-gray-800"
+            className="p-3 text-[#86868b] hover:text-white transition-colors rounded-full hover:bg-[#1A1A1A]"
             title="Attach File"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
             </svg>
           </button>
@@ -347,13 +334,13 @@ const ChatRoom: React.FC = () => {
               }
             }}
             placeholder={activeChatTarget === 'ROOM' ? "Message #General..." : `Message ${targetUser?.username || 'User'}...`}
-            className="flex-grow px-4 py-2 bg-gray-800 border border-gray-600 rounded-full text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            className="flex-grow px-5 py-3 bg-[#1A1A1A] border border-[#333] rounded-full text-white placeholder-[#555] focus:outline-none focus:ring-1 focus:ring-white focus:border-white transition-all"
           />
 
           <button
             type="submit"
             disabled={!inputText.trim()}
-            className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg transition-transform transform hover:scale-105 disabled:opacity-50 disabled:scale-100"
+            className="p-3 bg-white hover:bg-gray-200 text-black rounded-full shadow-[0_0_15px_rgba(255,255,255,0.1)] transition-transform transform hover:scale-105 disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
               <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
@@ -361,7 +348,7 @@ const ChatRoom: React.FC = () => {
           </button>
         </form>
         <div className="text-center mt-2">
-          <span className="text-[10px] text-gray-500">{cryptoStatusMessage}</span>
+          <span className="text-[10px] text-[#444] font-mono tracking-tighter">{cryptoStatusMessage}</span>
         </div>
       </div>
     </div >

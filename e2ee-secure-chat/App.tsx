@@ -13,15 +13,16 @@ const UpdateBanner: React.FC = () => {
   if (!updateAvailable) return null;
 
   return (
-    <div className="bg-blue-600 text-white px-4 py-2 text-sm flex justify-between items-center shadow-md z-50">
-      <span>
-        🚀 <strong>New Update Available!</strong> A newer version of the app is ready.
+    <div className="bg-[#1A1A1A] border-b border-[#00FF41] text-white px-4 py-3 text-sm flex justify-between items-center shadow-lg z-50">
+      <span className="flex items-center">
+        <span className="w-2 h-2 bg-[#00FF41] rounded-full mr-3 animate-pulse shadow-[0_0_5px_#00FF41]"></span>
+        <strong>System Update Available.</strong>&nbsp;New security protocols ready.
       </span>
       <button
         onClick={() => window.location.reload()}
-        className="bg-white text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-gray-100 transition-colors"
+        className="bg-[#00FF41] text-black px-4 py-1 rounded-full text-xs font-bold hover:bg-[#00CC33] transition-colors shadow-[0_0_10px_rgba(0,255,65,0.3)]"
       >
-        Refresh to Update
+        Initialize Update
       </button>
     </div>
   );
@@ -33,18 +34,18 @@ const AppContent: React.FC = () => {
 
   if (updateRequired) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white p-6 text-center">
-        <div className="bg-red-900/20 p-8 rounded-2xl border border-red-500/30 max-w-md">
-          <h1 className="text-3xl font-bold text-red-500 mb-4">Update Required</h1>
-          <p className="text-gray-300 mb-6">
-            Your version of E2EE Secure Chat is outdated. <br />
-            Please update to the latest version to continue using the service securely.
+      <div className="flex flex-col items-center justify-center h-screen bg-[#050505] text-white p-6 text-center">
+        <div className="bg-[#1A1A1A] p-10 rounded-[24px] border border-red-500/30 max-w-md shadow-2xl">
+          <h1 className="text-3xl font-bold text-red-500 mb-4 tracking-tight">Critical Update Required</h1>
+          <p className="text-[#86868b] mb-8 leading-relaxed">
+            Your client version is deprecated. <br />
+            Security protocols require an immediate update to continue.
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition-colors"
+            className="px-8 py-4 bg-red-600 hover:bg-red-700 rounded-full font-bold transition-all shadow-[0_0_20px_rgba(220,38,38,0.4)]"
           >
-            Check for Updates
+            Install Update
           </button>
         </div>
       </div>
@@ -52,11 +53,10 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900 text-gray-100 overflow-hidden">
+    <div className="flex flex-col h-screen bg-[#050505] text-[#F5F5F7] overflow-hidden">
       <Header onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
 
       {/* Soft Update Banner */}
-      {/* We need to access updateAvailable from context, but AppContent is inside ChatProvider, so we can use useChat() */}
       <UpdateBanner />
 
       <div className="flex flex-grow overflow-hidden relative">
@@ -69,7 +69,7 @@ const AppContent: React.FC = () => {
 
         <main className="flex-grow flex flex-col relative w-full">
           {!roomId ? (
-            <div className="flex-grow flex items-center justify-center p-4 bg-gradient-to-br from-gray-900 to-gray-800">
+            <div className="flex-grow flex items-center justify-center p-4 bg-[#050505]">
               <CreateOrJoinRoom />
             </div>
           ) : (

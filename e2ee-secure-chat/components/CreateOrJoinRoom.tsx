@@ -84,33 +84,33 @@ const CreateOrJoinRoom: React.FC = () => {
     <div className="w-full max-w-md space-y-6">
       {/* Connection Status Indicator */}
       <div className="flex justify-end">
-        <div className={`flex items-center text-xs font-bold px-3 py-1 rounded-full ${userIdentity ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'}`}>
-          <span className={`w-2 h-2 rounded-full mr-2 ${userIdentity ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-          {userIdentity ? 'Online & Ready' : 'Connecting...'}
+        <div className={`flex items-center text-xs font-bold px-3 py-1 rounded-full ${userIdentity ? 'bg-[#1A1A1A] text-[#00FF41] border border-[#00FF41]/30' : 'bg-red-900/20 text-red-400 border border-red-500/30'}`}>
+          <span className={`w-1.5 h-1.5 rounded-full mr-2 ${userIdentity ? 'bg-[#00FF41] animate-pulse shadow-[0_0_5px_#00FF41]' : 'bg-red-500'}`}></span>
+          {userIdentity ? 'System Online' : 'Connecting...'}
         </div>
       </div>
 
       {/* Incoming Requests Notification Area */}
       {incomingRequests.length > 0 && (
-        <div className="bg-gray-800 border border-blue-500 rounded-lg p-4 shadow-lg animate-fade-in-up">
+        <div className="bg-[#1A1A1A] border border-[#00FF41]/50 rounded-[20px] p-4 shadow-[0_0_20px_rgba(0,255,65,0.1)] animate-fade-in-up">
           <h3 className="text-white font-bold mb-3 flex items-center">
-            <span className="w-2 h-2 bg-blue-500 rounded-full mr-2 animate-pulse"></span>
-            Incoming Chat Requests
+            <span className="w-2 h-2 bg-[#00FF41] rounded-full mr-2 animate-pulse"></span>
+            Incoming Transmissions
           </h3>
           <div className="space-y-2">
             {incomingRequests.map(req => (
-              <div key={req.socketId} className="bg-gray-700 p-3 rounded flex justify-between items-center">
+              <div key={req.socketId} className="bg-[#050505] p-3 rounded-xl flex justify-between items-center border border-[#333]">
                 <div>
                   <p className="text-white font-medium">{req.username}</p>
-                  <p className="text-xs text-blue-300">
-                    {req.count > 0 ? `${req.count} new message${req.count > 1 ? 's' : ''}` : 'New Chat Request'}
+                  <p className="text-xs text-[#86868b]">
+                    {req.count > 0 ? `${req.count} new message${req.count > 1 ? 's' : ''}` : 'New Request'}
                   </p>
                 </div>
                 <button
                   onClick={() => handleAcceptChat(req.socketId, req.username)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-2 rounded transition-colors"
+                  className="bg-[#00FF41] hover:bg-[#00CC33] text-black text-xs font-bold px-4 py-2 rounded-full transition-colors shadow-[0_0_10px_rgba(0,255,65,0.3)]"
                 >
-                  Reply
+                  Accept
                 </button>
               </div>
             ))}
@@ -118,18 +118,18 @@ const CreateOrJoinRoom: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-gray-800 p-8 rounded-lg shadow-xl border border-gray-700">
-        <h2 className="text-3xl font-bold text-center mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
+      <div className="bg-[#1A1A1A] p-8 rounded-[24px] shadow-2xl border border-[#333]">
+        <h2 className="text-3xl font-bold text-center mb-2 text-white tracking-tight">
           Secure Chat
         </h2>
-        <p className="text-center text-gray-400 mb-6">
-          Serverless, End-to-End Encrypted.
+        <p className="text-center text-[#86868b] mb-8 font-light">
+          Initialize secure connection.
         </p>
 
-        <div className="mb-6 p-4 bg-gray-900 rounded-md border border-gray-700 flex items-center justify-between group relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+        <div className="mb-8 p-4 bg-[#050505] rounded-2xl border border-[#333] flex items-center justify-between group relative overflow-hidden">
+          <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
           <div className="relative z-10">
-            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Your Identity</p>
+            <p className="text-[10px] text-[#86868b] uppercase tracking-widest font-semibold mb-1">Identity</p>
             <div className="flex items-center space-x-2">
               <p className="text-lg font-bold text-white font-mono tracking-tight">
                 {userIdentity?.username || 'Loading...'}
@@ -140,7 +140,7 @@ const CreateOrJoinRoom: React.FC = () => {
                   storeIdentity(newId);
                   window.location.reload();
                 }}
-                className="p-1 text-gray-500 hover:text-blue-400 transition-colors"
+                className="p-1 text-[#86868b] hover:text-white transition-colors"
                 title="Regenerate Identity"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -150,25 +150,22 @@ const CreateOrJoinRoom: React.FC = () => {
             </div>
           </div>
           <div
-            className="w-12 h-12 rounded-full border-2 border-gray-700 shadow-lg relative z-10"
+            className="w-10 h-10 rounded-full border border-[#333] relative z-10"
             style={{ backgroundColor: userIdentity?.avatarColor || '#333' }}
           >
-            <div className="w-full h-full flex items-center justify-center text-white font-bold text-xl opacity-80">
-              {userIdentity?.username?.charAt(0) || '?'}
-            </div>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex mb-6 border-b border-gray-700">
+        <div className="flex mb-8 border-b border-[#333]">
           <button
-            className={`flex-1 pb-2 text-sm font-medium ${mode === 'ROOM' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-300'}`}
+            className={`flex-1 pb-3 text-sm font-medium transition-colors ${mode === 'ROOM' ? 'text-white border-b-2 border-white' : 'text-[#86868b] hover:text-gray-400'}`}
             onClick={() => setMode('ROOM')}
           >
             Join Room
           </button>
           <button
-            className={`flex-1 pb-2 text-sm font-medium ${mode === 'DIRECT' ? 'text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:text-gray-300'}`}
+            className={`flex-1 pb-3 text-sm font-medium transition-colors ${mode === 'DIRECT' ? 'text-white border-b-2 border-white' : 'text-[#86868b] hover:text-gray-400'}`}
             onClick={() => setMode('DIRECT')}
           >
             Direct Chat
@@ -176,9 +173,9 @@ const CreateOrJoinRoom: React.FC = () => {
         </div>
 
         {mode === 'ROOM' ? (
-          <form onSubmit={handleJoinRoom} className="space-y-4">
+          <form onSubmit={handleJoinRoom} className="space-y-6">
             <div>
-              <label htmlFor="roomName" className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="roomName" className="block text-xs font-bold text-[#86868b] uppercase tracking-wider mb-2">
                 Room Name
               </label>
               <input
@@ -186,7 +183,7 @@ const CreateOrJoinRoom: React.FC = () => {
                 id="roomName"
                 value={roomName}
                 onChange={(e) => setRoomName(e.target.value)}
-                className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                className="w-full px-4 py-3 bg-[#050505] border border-[#333] rounded-xl text-white focus:ring-1 focus:ring-white focus:border-white outline-none transition-all placeholder-[#444]"
                 placeholder="e.g. SecretBase"
                 required
               />
@@ -194,15 +191,15 @@ const CreateOrJoinRoom: React.FC = () => {
             <button
               type="submit"
               disabled={isJoining}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-3 px-4 rounded-md transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-white hover:bg-gray-200 text-black font-bold py-4 px-4 rounded-full transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(255,255,255,0.1)]"
             >
               {isJoining ? 'Joining...' : 'Join Room'}
             </button>
           </form>
         ) : (
-          <form onSubmit={handleDirectChat} className="space-y-4">
+          <form onSubmit={handleDirectChat} className="space-y-6">
             <div>
-              <label htmlFor="targetUsername" className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="targetUsername" className="block text-xs font-bold text-[#86868b] uppercase tracking-wider mb-2">
                 Target Username
               </label>
               <input
@@ -210,18 +207,18 @@ const CreateOrJoinRoom: React.FC = () => {
                 id="targetUsername"
                 value={targetUsername}
                 onChange={(e) => setTargetUsername(e.target.value)}
-                className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all"
+                className="w-full px-4 py-3 bg-[#050505] border border-[#333] rounded-xl text-white focus:ring-1 focus:ring-white focus:border-white outline-none transition-all placeholder-[#444]"
                 placeholder="e.g. NeonTiger"
                 required
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Enters the default "Lobby" to find this user.
+              <p className="text-[10px] text-[#86868b] mt-2">
+                * Searching in public lobby
               </p>
             </div>
             <button
               type="submit"
               disabled={isJoining}
-              className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-3 px-4 rounded-md transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-white hover:bg-gray-200 text-black font-bold py-4 px-4 rounded-full transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(255,255,255,0.1)]"
             >
               {isJoining ? 'Connecting...' : 'Start Chat'}
             </button>
