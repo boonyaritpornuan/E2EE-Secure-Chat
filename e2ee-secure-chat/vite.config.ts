@@ -10,22 +10,17 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
         manifest: {
-          name: 'E2EE Secure Chat',
-          short_name: 'SecureChat',
-          description: 'End-to-End Encrypted Secure Chat Application',
-          theme_color: '#111827',
-          background_color: '#111827',
+          name: 'Just Be Null.',
+          short_name: 'benull',
+          description: 'Secure Serverless Chat. Let it be null.',
+          theme_color: '#050505',
+          background_color: '#050505',
           display: 'standalone',
           icons: [
             {
-              src: 'pwa-192x192.png',
-              sizes: '192x192',
-              type: 'image/png'
-            },
-            {
-              src: 'pwa-512x512.png',
-              sizes: '512x512',
-              type: 'image/png'
+              src: 'favicon.svg',
+              sizes: 'any',
+              type: 'image/svg+xml'
             }
           ]
         }

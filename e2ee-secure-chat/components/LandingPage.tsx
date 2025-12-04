@@ -44,6 +44,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onShowStats }) => {
             {/* 1. The Header */}
             <header className="fixed top-0 left-0 right-0 z-50 px-6 py-4 flex justify-between items-center bg-[#050505]/80 backdrop-blur-md border-b border-white/5">
                 <div className="flex items-center">
+                    <span className="text-[#39FF14] text-3xl mr-2">Ø</span>
                     <span className="text-2xl font-bold tracking-tight text-white">benull</span>
                     <span className="text-[#39FF14] text-2xl leading-none">.</span>
                 </div>
@@ -149,7 +150,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onShowStats }) => {
                         <div className="glass-premium p-8 rounded-3xl border-[#39FF14]/20 shadow-[0_0_30px_rgba(57,255,20,0.05)]">
                             <div className="text-center mb-8">
                                 <h3 className="text-xl font-bold text-white mb-2 flex items-center justify-center gap-2">
-                                    benull<span className="text-[#39FF14]">.</span>
+                                    <span className="text-[#39FF14]">Ø</span> benull<span className="text-[#39FF14]">.</span>
                                 </h3>
                                 <p className="text-sm text-[#39FF14]">Direct. Encrypted. Ephemeral.</p>
                             </div>
@@ -279,7 +280,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onShowStats }) => {
             <footer className="py-12 px-6 border-t border-white/5 bg-[#050505] text-sm">
                 <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
                     <div className="text-center md:text-left">
-                        <h4 className="font-bold text-white mb-1">benull.</h4>
+                        <h4 className="font-bold text-white mb-1 flex items-center justify-center md:justify-start"><span className="text-[#39FF14] mr-1">Ø</span> benull.</h4>
                         <p className="text-[#666]">Designed for silence.</p>
                     </div>
 

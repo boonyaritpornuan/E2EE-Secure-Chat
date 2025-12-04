@@ -487,7 +487,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     socket.on('connect', () => {
       console.log('Connected to signaling server:', socket.id);
-      setCryptoStatusMessage("Connected to server.");
+      setCryptoStatusMessage("Online");
 
       // Register User Globally
       if (userIdentity && ownKeyPairRef.current) {
