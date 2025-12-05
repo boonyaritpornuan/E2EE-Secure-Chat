@@ -179,12 +179,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const storedPrivateKey = await getKey('privateKey');
 
         if (storedPublicKey && storedPrivateKey) {
-          console.log("Loaded keys from persistence.");
+
           setOwnKeyPair({ publicKey: storedPublicKey, privateKey: storedPrivateKey });
           setCryptoStatusMessage("Ready (Restored).");
         } else {
           // Generate new keys if not found
-          console.log("Generating new keys...");
+
           setCryptoStatusMessage("Generating identity keys...");
           const keys = await generateAppKeyPair();
 
@@ -330,7 +330,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         });
         const peers = Array.from(uniquePeersMap.values());
-        console.log(`[Group Transfer] Found ${peers.length} peers in room to send to.`);
+
 
         if (peers.length === 0) {
           addSystemMessage("No other users in room to send file to.", SystemMessageType.ERROR);
@@ -476,7 +476,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Prevent multiple connections
     if (socketRef.current) return;
 
-    console.log("Initializing socket connection...");
+
     const socket = io(SIGNALING_SERVER_URL, {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -486,7 +486,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Connected to signaling server:', socket.id);
+
       setCryptoStatusMessage("Online");
 
       // Register User Globally
@@ -523,7 +523,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     socket.on('file-offer', ({ senderSocketId, metadata, fileMetadata }: { senderSocketId: string, metadata: any, fileMetadata: any }) => {
       const data = metadata || fileMetadata;
-      console.log("Received file offer:", data);
+
 
       const transferState: FileTransferState = {
         transferId: data.transferId,
@@ -630,7 +630,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     socket.on('file-complete', ({ transferId }: { transferId: string }) => {
       // 1. Absolute Guard: Check if already processed
       if (processedTransferIds.current.has(transferId)) {
-        console.log(`Duplicate completion ignored for ${transferId}`);
+
         return;
       }
 
@@ -645,7 +645,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Update Ref to reflect status (for UI consistency if state lags)
       activeTransfersRef.current[transferId] = { ...transfer, status: 'completed', progress: 100 };
 
-      console.log(`File complete signal for ${transfer.fileName} (ID: ${transferId})`);
+
 
       if (!transfer.isUpload) {
         try {
@@ -656,7 +656,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             return;
           }
 
-          console.log(`[File Complete] Reassembling ${transfer.fileName}. Chunks: ${chunks.size}/${transfer.chunksTotal}`);
+
 
           const blob = FileTransferManager.reassembleFile(chunks, transfer.chunksTotal, transfer.fileType);
 
@@ -685,8 +685,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           a.setAttribute('download', safeName);
           document.body.appendChild(a);
 
-          console.log(`Attempting download: ${safeName} from ${url} (${blob.size} bytes)`);
-          console.log(`Transfer Object:`, transfer);
+
           a.click();
 
           // Cleanup - Increase timeout to ensure browser has time to save
@@ -695,7 +694,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             URL.revokeObjectURL(url);
             // Remove chunks from memory
             fileChunksRef.current.delete(transferId);
-            console.log(`Cleaned up transfer ${transferId}`);
+
           }, 30000); // 30 seconds wait
 
           addSystemMessage(`✅ File received: ${safeName}`, SystemMessageType.WEBRTC_STATUS, { isDirect: transfer.isDirect, peerId: transfer.peerSocketId, peerUsername: transfer.peerUsername });
@@ -751,7 +750,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // --- Chat Listeners ---
 
     socket.on('room-users', async (users: UserProfile[]) => {
-      console.log("Received room users:", users);
+
       setActiveUsers(prev => {
         // 1. Mark incoming users as online
         const incomingUsers = users.map(u => ({ ...u, isOnline: true }));

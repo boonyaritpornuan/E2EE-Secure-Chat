@@ -26,9 +26,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onShowStats }) => {
             deferredPrompt.prompt();
             deferredPrompt.userChoice.then((choiceResult: any) => {
                 if (choiceResult.outcome === 'accepted') {
-                    console.log('User accepted the install prompt');
+                    // User accepted
                 } else {
-                    console.log('User dismissed the install prompt');
+                    // User dismissed
                 }
                 setDeferredPrompt(null);
             });
@@ -49,7 +49,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onShowStats }) => {
                     <span className="text-[#39FF14] text-2xl leading-none">.</span>
                 </div>
                 <a
-                    href="https://github.com/boonyarit-man/E2EE-Secure-Chat"
+                    href="https://github.com/benull-org"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[#86868b] hover:text-white transition-colors"
@@ -285,9 +285,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onShowStats }) => {
                     </div>
 
                     <div className="flex gap-8 text-[#86868b]">
-                        <a href="https://github.com/boonyarit-man/E2EE-Secure-Chat" className="hover:text-white transition-colors">GitHub</a>
-                        <span className="hover:text-white transition-colors cursor-pointer" title="We don't collect anything.">Privacy Policy</span>
-                        <span className="hover:text-white transition-colors cursor-pointer" onClick={onShowStats}>Server Status</span>
+                        <a href="https://github.com/benull-org" className="hover:text-white transition-colors">GitHub</a>
+                        <a href="https://www.facebook.com/profile.php?id=61584506919173" className="hover:text-white transition-colors">Facebook</a>
+                        <a href="mailto:dev@benull.org" className="hover:text-white transition-colors">Contact</a>
+                        <span className="hover:text-white transition-colors cursor-pointer" onClick={onShowStats}>Nexus Status</span>
                     </div>
 
                     <div className="text-[#444] text-xs">

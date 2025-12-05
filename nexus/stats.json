@@ -1,0 +1,11 @@
+{
+  "totalVisits": 2,
+  "dailyStats": {
+    "2025-12-05": {
+      "visits": 2,
+      "uniqueIps": [
+        "::ffff:127.0.0.1"
+      ]
+    }
+  }
+}

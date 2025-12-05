@@ -44,7 +44,7 @@ export const generateAppKeyPair = async (): Promise<KeyPair> => {
     );
     // Ensure the generated keys are indeed CryptoKey for publicKey and privateKey
     if (!keyPair.publicKey || !keyPair.privateKey) {
-        throw new Error("Generated key pair is invalid.");
+      throw new Error("Generated key pair is invalid.");
     }
     return keyPair as KeyPair; // Cast to our KeyPair type
   } catch (error) {
@@ -147,9 +147,8 @@ export const decryptText = async (
     );
 
     return new TextDecoder().decode(decryptedBuffer);
-  } catch (error)
- {
-    // console.error('Decryption failed:', error); // Common if key is wrong or data corrupt
+  } catch (error) {
+
     return null;
   }
 };

@@ -1,0 +1,12 @@
+{
+    "name": "e2ee-chat-tests",
+    "version": "1.0.0",
+    "description": "Integration tests for E2EE Secure Chat",
+    "scripts": {
+        "test:integrity": "node test_integrity.js",
+        "test:sender": "node test_sender.js"
+    },
+    "dependencies": {
+        "socket.io-client": "^4.8.1"
+    }
+}

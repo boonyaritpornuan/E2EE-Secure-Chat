@@ -110,16 +110,16 @@ const AppContent: React.FC = () => {
   );
 };
 
-import ServerStatus from './components/ServerStatus';
+import NexusStatus from './components/NexusStatus';
 
 const App: React.FC = () => {
   const [showLanding, setShowLanding] = React.useState(true);
-  const [showServerStatus, setShowServerStatus] = React.useState(false);
+  const [showNexusStatus, setShowNexusStatus] = React.useState(false);
 
-  if (showServerStatus) {
+  if (showNexusStatus) {
     return (
       <ChatProvider>
-        <ServerStatus onBack={() => setShowServerStatus(false)} />
+        <NexusStatus onBack={() => setShowNexusStatus(false)} />
       </ChatProvider>
     );
   }
@@ -129,7 +129,7 @@ const App: React.FC = () => {
       <>
         <LandingPage
           onStart={() => setShowLanding(false)}
-          onShowStats={() => setShowServerStatus(true)}
+          onShowStats={() => setShowNexusStatus(true)}
         />
         <CookieConsent />
       </>

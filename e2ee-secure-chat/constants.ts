@@ -1,5 +1,5 @@
 
-export const APP_NAME = "E2EE Secure Chat";
+export const APP_NAME = "benull.";
 export const MAX_ROOM_ID_LENGTH = 12;
 export const LOCAL_STORAGE_KEY_PREFIX = "e2eeChat_";
 export const MESSAGE_EXPIRY_TIMER_OPTIONS = [
